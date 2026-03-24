@@ -2,6 +2,7 @@ from datetime import datetime
 from math import exp
 from app.models.transaction import Transaction
 
+# convert time into days
 def age_in_days(transacted_at: datetime, now: datetime) -> float:
     t = now - transacted_at
     return t.total_seconds() / 86400.0
@@ -10,6 +11,8 @@ def age_in_days(transacted_at: datetime, now: datetime) -> float:
 def recency_weight(age_days: float, decay_lambda: float) -> float:
     return exp(-decay_lambda * age_days)
 
+# computes fair value with recency-weighted averaging
+    # look in math.txt for more thorughough explaination
 def compute_fair_value(
     transactions: list[Transaction],
     now: datetime | None = None,

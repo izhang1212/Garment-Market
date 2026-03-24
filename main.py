@@ -1,5 +1,7 @@
-from app.db.session import SessionLocal
-from app.models.item import Item
+from app.db.base import Base
+from app.db.session import engine, SessionLocal
+from app.models import Item, Transaction, Listing
+from app.data.seed_data import seed_database
 from app.quant import (
     compute_fair_value,
     compute_volatility,
@@ -10,13 +12,16 @@ from app.quant import (
 
 
 def main() -> None:
+    Base.metadata.create_all(bind=engine)
+    seed_database()
+
     db = SessionLocal()
 
     try:
         item = db.query(Item).filter_by(sku="DD1391-100").first()
 
         if item is None:
-            print("No item found. Seed the database first.")
+            print("No item found.")
             return
 
         fair_value = compute_fair_value(item.transactions)

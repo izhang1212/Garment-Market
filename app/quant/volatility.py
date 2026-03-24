@@ -3,6 +3,9 @@ from math import sqrt
 from app.models.transaction import Transaction
 from app.quant.fair_value import age_in_days, recency_weight
 
+# computes the volatility (i.e. how much transaction fluctuates) around the FV
+    # Also uses recency weighting, so recent price instabilty matters more than old
+    # if volatiltiy is high, we are less confident / more uncertain
 def compute_volatility(
     transactions: list[Transaction],
     now: datetime | None = None,
