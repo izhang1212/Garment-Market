@@ -1,8 +1,7 @@
-from strategies import (
-    compute_base_spread,
-    compute_reservation_price,
-    compute_quotes,
-    compute_fill_probability,
+from .spread import compute_base_spread
+from .inventory import compute_reservation_price, compute_quotes
+from .fill_probability import compute_fill_probability
+from .expected_value import (
     compute_bid_expected_value,
     compute_ask_expected_value,
 )

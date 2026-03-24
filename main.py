@@ -15,12 +15,10 @@ from app.strategies import (
 
 def main() -> None:
     Base.metadata.create_all(bind=engine)
-
+    seed_database()
     db = SessionLocal()
 
     try:
-        seed_database(db)
-
         item = db.query(Item).filter(Item.sku == "DD1391-100").first()
 
         if item is None:
