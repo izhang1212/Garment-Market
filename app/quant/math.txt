@@ -1,0 +1,28 @@
+This model leans more toward the recent prices (recency weighting), 
+using exponential time decay: w_𝑖 = e^(-𝜆 * 𝑡_𝑖),
+where: 
+- 𝑡_𝑖 = age in days
+- 𝜆 = decay rate
+
+So, rather than averaging the values, this model biases the more
+recent transactions, taking "market trends" into account
+- e.g. if t = 0, weight = 1 (i.e. very important),
+       if t = 10, weight is small since the transaction is outdated
+       if t = 20, this transaction is almost ignored since it is so outdated	​
+
+MODELS:
+Fair Value: 𝜇 = (∑w_𝑖 * x_𝑖) / ∑w_𝑖
+    - By using weights (w_𝑖), we can find the "best estimate" of current market 
+      value given recent evidence (giving more weight to more recent transactions)
+Volatility: σ= sqrt((∑w_𝑖 (x_𝑖 - 𝜇)^2) / ∑w_𝑖)
+    - Calculates the spread (and in doing so the risk) of the transactions
+    - e.g. if transactions are [200, 201, 198], the volatility is small since the transactions are grouped closely
+           if transactions are [200, 149, 262], the volatility is higher since the prices vary largely (i.e. more risk)
+
+EXAMPLE:
+If an output gives:
+    Fair Value: 245.8
+    Volatility: 4.6
+Interpretation: 
+    We think the item is worth ~246 and the typical deviation is +/-5
+    So, most prices fall between 241 - 251
