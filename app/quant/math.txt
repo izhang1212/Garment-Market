@@ -25,3 +25,33 @@ Given a list of transactions, if an output gives:
 Interpretation: 
     We think the item is worth ~246 and the typical deviation is +/-5
     So, most prices fall between 241 - 251
+
+
+Base spread: spread = kσ
+    - By using the volatility, the more uncertain it is, the wider we should quote
+
+Reservation price: r = μ − αq, where:
+    - r = reservation price
+    - μ = fair value
+    - q = inventory
+    - α = penalty 
+Interpretation: "The value of this item is lower if I already own too much of it"
+
+Bid: r - spread/2
+Ask: r + spread/2
+    - This centers the market around our adjusted internval value (reservation price), not just the raw FV
+
+EXAMPLE:
+Suppose 
+    - FV = 246
+    - Volatility = 5
+    - Spread = 10
+    - Inventory = 2
+    - penalty = 1.5
+Then, 
+    r = 246 - (1.5 * 2.0) = 243
+So,
+    bid = 243 - 5 = 238
+    ask = 243 + 5 = 248
+Because inventory is positive, our quote shifts downward, and
+we are more eagar to sell and less eager to buy

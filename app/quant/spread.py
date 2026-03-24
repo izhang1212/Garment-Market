@@ -1,7 +1,8 @@
 
 
-# compute a volatility based spread
-    #prevents spread from becoming unrealistically tiny with min_spread
+# converts volatility to a "base-spread"
+    # spread is the distance between our bid and ask
+    # higher volatility proudces larger spread to protect itself
 def compute_base_spread(
     volatility: float,
     spread_multiplier: float = 2.0,

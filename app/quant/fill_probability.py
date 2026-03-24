@@ -10,7 +10,7 @@ def compute_fill_probability(
     quote_price: float,
     fair_value: float,
     volatility: float,
-    agressiveness: float = 1.0
+    aggressiveness: float = 1.0
 ) -> float:
     
     if volatility <= 0:
@@ -19,4 +19,4 @@ def compute_fill_probability(
         return 0.0
     
     distance = abs(quote_price - fair_value)
-    return exp(-agressiveness * distance / volatility)
+    return exp(-aggressiveness * distance / volatility)
