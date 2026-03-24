@@ -1,4 +1,4 @@
-from app.quant import (
+from app.strategies import (
     compute_base_spread,
     compute_reservation_price,
     compute_quotes,
