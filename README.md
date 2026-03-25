@@ -1,14 +1,14 @@
 # fashion-market (trading engine)
 
-# overview
+# Overview
 
-This project is a **quantitative market-making engine for fashion resale (e.g. StockX, GOAT, ebay)** that evaluates optimal bid/ask quotes using historical transaction data.
+**Description:** This is a quantitative market-making engine for fashion resale (e.g. StockX, GOAT, ebay) that evaluates optimal bid/ask quotes using historical transaction data.
 
-The system estimates fair value and uncertainty, generates quotes using two different strategies, and evaluates them using execution probability and expected value.
+**Method:** The system estimates fair value and uncertainty, generates quotes using two different strategies, and evaluates them using execution probability and expected value.
 
-GOAL: simulate how a market maker determines optimal buy/sell prices under uncertainty.
+**GOAL**: To simulate how a market maker determines optimal buy/sell prices under uncertainty.
 
-# Two stratagies implemented:
+# Two Stratagies Implemented:
 
 ### 1. Data-Driven EV Model (`app/strategies/ev_model/`)
 - Recency-weighted fair value
@@ -23,7 +23,7 @@ GOAL: simulate how a market maker determines optimal buy/sell prices under uncer
 - Optimal spread derived from risk aversion, volatility, and liquidity
 - Closed-form quote generation
 
-## Example output:
+## Example Output:
 
 Item: Nike Dunk Low Panda
 
@@ -48,6 +48,11 @@ app/
 ├── strategies/
 │ ├── ev_model/ # data-driven EV-based model
 │ └── avellaneda_stoikov/ # theoretical model
+
+## Next Steps
+
+- Calibrate Avellaneda–Stoikov parameters (risk aversion, liquidity)
+- Incorporate real marketplace data from resale websites
 
 # References:
 
