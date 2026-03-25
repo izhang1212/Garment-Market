@@ -23,7 +23,24 @@ Optimal Spread: γ(σ^2)T + (2/γ) * ​ln(1 + (γ/k)​)
     - (2/γ) * ​ln(1 + (γ/k)​): Liquidity term
         - low liquidity = higher spread, vise versa (harder to exit market)
 
-Bid/Ask Quotes: bid = r - (spread/2), ask = r + (spread/2)
+Bid/Ask Quotes: 
+- bid = r - (spread/2)
+- ask = r + (spread/2)
     - Centers quotes around reservation price (how much it is worth to us) rather than FV (market)
 
 EXAMPLE:
+Given
+- μ = 246
+- σ = 5
+- q = 2
+- γ = 0.1
+- k = 1.0
+- T = 1
+
+Reservation Price: r = 246 − (2 * 0.1 * 25 * 1) 
+                     = 246 − 5 
+                     = 241
+Spread = (0.1 * 25 * 1) + (2/0.1) * ln(1 + 0.1 / 1)
+       ~ 4.4
+Bid = 241 - 4.4 = 236.6
+Ask = 241 + 4.4 = 245.4
