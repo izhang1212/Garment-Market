@@ -1,0 +1,29 @@
+
+VARIABLES:
+- μ (fair value) estimated true price
+- σ (volatility) uncertainty / price dispersion
+- q (inventory) how many units you hold
+- γ (risk aversion) how much you dislike risk
+- k (liquidity) how quickly trades happen
+- T (time horizon) how long you plan to trade
+
+KEY IDEAS:
+Reservation Price: r = μ − qγ(σ^2)T
+    - Interpretation: The true price to the trader, not the market
+    - Takes inventory (q) into account (i.e. if q > 0, price shifts down, if q < 0, price shifts up)
+    - qγ(σ^2)T: inventory penalty term  
+        - If T increases (longer horizon), the penalty becomes larger, and r shifts further away from FV
+        - If T is small, r ~ μ, so we don't care much about the inventory since we are exiting the market soon
+
+Optimal Spread: γ(σ^2)T + (2/γ) * ​ln(1 + (γ/k)​)
+    - γ(σ^2)T: The risk term 
+        - higher volatility (σ) or risk aversion (γ) = wider spread
+        - Larger time horizon (T) = more risk = wider spread
+            - If T is small, we only care about the liquidity term (i.e. how easy it is to exit)
+    - (2/γ) * ​ln(1 + (γ/k)​): Liquidity term
+        - low liquidity = higher spread, vise versa (harder to exit market)
+
+Bid/Ask Quotes: bid = r - (spread/2), ask = r + (spread/2)
+    - Centers quotes around reservation price (how much it is worth to us) rather than FV (market)
+
+EXAMPLE:
