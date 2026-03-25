@@ -24,9 +24,9 @@
 - Closed-form quote generation
 
 ## Example Output:
-
-Item: Nike Dunk Low Panda
-
+```
+Item: Supreme Box Logo Hoodie
+----------------------------------------
 Fair value: 245.97
 Volatility: 4.21
 
@@ -37,7 +37,7 @@ Total EV: 2.53
 AVELLANEDA–STOIKOV
 Bid: 244.53 | Ask: 246.70
 Total EV: 1.64
-
+```
 ## Project Structure:
 
 app/
