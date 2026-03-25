@@ -1,21 +1,53 @@
-# fashion-market
+# fashion-market (trading engine)
 
-"Fashion Market" is a system that tells you where to buy and sell an item by combining market data, uncertainty, risk, and inventory into one optimal pricing decision.
+# overview
 
-# Model:
-Raw Market Data
-        ↓
-Normalized Data (parser)
-        ↓
-Belief about value (fair value + uncertainty)
-        ↓
-Quote decision (bid/ask)
-        ↓
-Adjust for inventory + risk
-        ↓
-Evaluate EV + probability
-        ↓
-Final recommendation
+This project is a **quantitative market-making engine for fashion resale (e.g. StockX, GOAT, ebay)** that evaluates optimal bid/ask quotes using historical transaction data.
+
+The system estimates fair value and uncertainty, generates quotes using two different strategies, and evaluates them using execution probability and expected value.
+
+GOAL: simulate how a market maker determines optimal buy/sell prices under uncertainty.
+
+# Two stratagies implemented:
+
+### 1. Data-Driven EV Model (`app/strategies/ev_model/`)
+- Recency-weighted fair value
+- Recency-weighted volatility
+- Volatility-based spread
+- Inventory-adjusted reservation price
+- Fill probability model
+- Expected value optimization across candidate quotes
+
+### 2. Avellaneda–Stoikov Model (`app/strategies/avellaneda_stoikov/`)
+- Theoretical reservation price
+- Optimal spread derived from risk aversion, volatility, and liquidity
+- Closed-form quote generation
+
+## Example output:
+
+Item: Nike Dunk Low Panda
+
+Fair value: 245.97
+Volatility: 4.21
+
+DATA DRIVEN EV MODEL
+Bid: 236.65 | Ask: 249.30
+Total EV: 2.53
+
+AVELLANEDA–STOIKOV
+Bid: 244.53 | Ask: 246.70
+Total EV: 1.64
+
+## Project Structure:
+
+app/
+├── db/ # database setup
+├── models/ # ORM models (Item, Transaction, Listing)
+├── data/ # seed data
+├── engine/ # quote optimization (find_best_quote)
+├── strategies/
+│ ├── ev_model/ # data-driven EV-based model
+│ └── avellaneda_stoikov/ # theoretical model
 
 # References:
 
