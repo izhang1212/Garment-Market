@@ -39,7 +39,7 @@ Bid: 244.53 | Ask: 246.70
 Total EV: 1.64
 ```
 ## Project Structure:
-
+```
 app/
 ├── db/ # database setup
 ├── models/ # ORM models (Item, Transaction, Listing)
@@ -48,7 +48,7 @@ app/
 ├── strategies/
 │ ├── ev_model/ # data-driven EV-based model
 │ └── avellaneda_stoikov/ # theoretical model
-
+```
 ## Next Steps
 
 - Calibrate Avellaneda–Stoikov parameters (risk aversion, liquidity)
