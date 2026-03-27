@@ -1,4 +1,4 @@
-# fashion-market (trading engine)
+# Garment-Market (trading engine)
 
 # Overview
 
