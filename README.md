@@ -25,19 +25,45 @@
 
 ## Example Output:
 ```
-Item: Supreme Box Logo Hoodie
-----------------------------------------
-Fair value: 245.97
-Volatility: 4.21
+Item: Adidas Yeezy Boost 350 V2 Onyx
+SKU: HP6928
+Model used: Avellaneda-Stoikov
 
-DATA DRIVEN EV MODEL
-Bid: 236.65 | Ask: 249.30
-Total EV: 2.53
+MARKET METRICS
+Fair value: 256.62
+Volatility: 22.27
+Inventory: 2
 
-AVELLANEDA–STOIKOV
-Bid: 244.53 | Ask: 246.70
-Total EV: 1.64
+MODEL OUTPUT
+Risk aversion: 0.0010
+Liquidity: 0.2500
+Time horizon: 2.0000
+Reservation price: 254.64
+Spread: 8.98
+Bid: 250.15
+Ask: 259.12
+Bid fill probability: 0.7478
+Ask fill probability: 0.8936
+Bid EV: 4.8392
+Ask EV: 2.2381
+Total EV: 7.0773
+
+FINAL RECOMMENDATION
+Action: sell_only
+Recommended bid: 250.15
+Recommended ask: 259.12
+
+JUSTIFICATION
+- Estimated fair value is 256.62 and volatility is 22.27.
+- The model produced a reservation price of 254.64 with a spread of 8.98.
+- Recommended bid is 250.15 and recommended ask is 259.12.
+- Inventory is positive, so the strategy should be somewhat cautious about accumulating even more units.
+- Bid EV is 4.8392 with fill probability 0.7478.
+- Ask EV is 2.2381 with fill probability 0.8936.
+- Total expected value across both sides is 7.0773.
+- Only the ask side is actionable because selling is favorable while the bid side is not attractive enough.
 ```
+
 ## Project Structure:
 ```
 app/
