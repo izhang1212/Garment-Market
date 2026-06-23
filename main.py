@@ -2,39 +2,41 @@ from app.db.base import Base
 from app.db.session import engine, SessionLocal
 from app.data.seed_data import seed_database
 from app.models.item import Item
- 
+
 from app.strategies import (
     compute_fair_value,
     compute_volatility,
     find_best_as_quote,
+    compute_as_liquidity,
 )
 from app.decision import trading_decision
 from app.reporting import print_report
- 
- 
+
+
 def main() -> None:
     Base.metadata.create_all(bind=engine)
     seed_database()
     db = SessionLocal()
- 
+
     try:
         items = db.query(Item).all()
- 
+
         if not items:
             print("No items found.")
             return
- 
+
         for item in items:
             fair_value = compute_fair_value(item.transactions)
             volatility = compute_volatility(item.transactions)
+            liquidity = compute_as_liquidity(item.transactions)
             inventory = 2
- 
+
             quote_result, _ = find_best_as_quote(
                 fair_value=fair_value,
                 volatility=volatility,
                 inventory=inventory,
                 risk_aversion_values=[0.001, 0.005, 0.01, 0.02, 0.05],
-                liquidity_values=[0.25, 0.5, 1.0, 2.0, 4.0],
+                liquidity_values=[liquidity],
                 time_horizon_values=[0.5, 1.0, 2.0],
                 aggressiveness=1.0,
                 min_spread=0.0,

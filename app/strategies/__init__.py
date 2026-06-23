@@ -15,7 +15,8 @@ from .avellaneda_stoikov import (
     compute_as_optimal_spread,
     compute_as_quotes,
     evaluate_as_candidate,
-    find_best_as_quote
+    find_best_as_quote,
+    compute_as_liquidity,
 )
 
 __all__ = [
@@ -32,5 +33,6 @@ __all__ = [
     "compute_as_quotes",
     "find_best_quote",
     "evaluate_as_candidate",
-    "find_best_as_quote"
+    "find_best_as_quote",
+    "compute_as_liquidity",
 ]

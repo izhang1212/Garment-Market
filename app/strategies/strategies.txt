@@ -6,7 +6,8 @@ OVERVIEW
 --------
 The EV model is a heuristic approach. It does not derive an optimal spread from
 a formula. Instead, it simulates many candidate spreads and picks the one with
-the highest expected value. Because the bid and ask are centered around the
+the highest expected value. 
+Because the bid and ask are centered around the
 reservation price (not fair value), and fill probability is measured from fair
 value, the two sides end up at different distances from FV. This means bid_EV
 and ask_EV are naturally different — the model implicitly penalizes taking on
@@ -82,17 +83,18 @@ OVERVIEW
 The AS model derives the optimal spread analytically from a continuous-time
 stochastic control problem (Hamilton-Jacobi-Bellman equation). Rather than
 simulating candidate spreads, it computes exactly what the bid and ask should
-be given the model's parameters. The optimizer sweeps over uncertain parameter
-values (γ, κ, T) and uses the same EV scoring to find the best combination.
+be given the model's parameters. Liquidity (κ) is estimated directly from
+transaction history. The optimizer sweeps over uncertain parameter values
+(γ, T) and uses the same EV scoring to find the best combination.
 
 
 PARAMETERS (inputs we provide)
 -----------
-- fair_value (s):           estimated true price (typically taken from EV model output)
-- volatility (σ):           price uncertainty (typically taken from EV model output)
+- transactions:             historical trade records (price + timestamp), shared with EV model
+- fair_value (s):           estimated true price (taken from EV model output)
+- volatility (σ):           price uncertainty (taken from EV model output)
 - inventory (q):            how many units we currently hold
 - risk_aversion (γ):        how much we penalize holding inventory risk
-- liquidity (κ):            rate at which market orders arrive
 - time_horizon (T):         how long we plan to be in the market
 - aggressiveness:           fill probability decay rate (shared with EV model)
 - min_spread:               floor on the spread
@@ -100,6 +102,27 @@ PARAMETERS (inputs we provide)
 
 VARIABLES (derived from parameters)
 ---------
+Liquidity (κ):
+    The AS model treats market order arrivals as a Poisson process with rate κ.
+    Rather than hardcoding κ, we estimate it directly from the transaction history
+    using the maximum likelihood estimator (MLE) for a Poisson rate:
+
+        κ = N / W
+
+    where:
+        N = total number of transactions in the observation window
+        W = width of the observation window in days
+              (from the oldest transaction timestamp to now)
+
+    This gives κ in units of trades per day. A more liquid item (many recent
+    sales) produces a higher κ, which tightens the spread; an illiquid item
+    (few sparse sales) produces a lower κ, which widens the spread — exactly
+    the behavior the AS model intends.
+
+    Example:
+        Nike AF1:   30 sales over 25 days  →  κ ≈ 1.20  (liquid, tighter spread)
+        Nike Air Mag: 15 sales over 120 days →  κ ≈ 0.13  (illiquid, wider spread)
+
 Reservation Price (r):
     r = s - q * γ * σ² * T
     Inventory penalty scales with volatility, risk aversion, and time horizon.
@@ -123,15 +146,16 @@ Unlike the EV model, the spread width is not searched — it is computed directl
 from the formula above. The quotes are symmetric around the reservation price
 because the model assumes buy and sell orders arrive at equal rates.
 
-EV scoring — used by the optimizer to select the best (γ, κ, T) combination:
+EV scoring — used by the optimizer to select the best (γ, T) combination:
     P(fill_bid)  = exp(-aggressiveness * |bid - FV| / σ)
     P(fill_ask)  = exp(-aggressiveness * |ask - FV| / σ)
     bid_EV       = (FV - bid)  * P(fill_bid)
     ask_EV       = (ask - FV)  * P(fill_ask)
     total_EV     = bid_EV + ask_EV
 
-The optimizer sweeps all combinations of risk_aversion × liquidity × time_horizon
-and returns the candidate with the highest total_EV.
+The optimizer sweeps all combinations of risk_aversion × time_horizon and
+returns the candidate with the highest total_EV. Liquidity is no longer swept —
+it is fixed at the data-derived κ.
 
 
 
@@ -144,7 +168,7 @@ HOW THE SPREAD IS DETERMINED
     EV model:   no formula. Sweeps candidate spread_multipliers, picks best total_EV.
                 The spread width emerges from simulation, not theory.
     AS model:   closed-form formula. δ = γσ²T + (2/γ)ln(1 + γ/κ).
-                Sweeps uncertain model parameters (γ, κ, T) instead of the spread itself.
+                κ is computed from transaction history; γ and T are still swept.
 
 QUOTE SYMMETRY
     EV model:   quotes are symmetric around r, but asymmetric relative to FV when
@@ -154,18 +178,19 @@ QUOTE SYMMETRY
                 The δ/2 symmetry follows from assuming equal bid/ask arrival rates.
 
 INVENTORY PENALTY
-    EV model:   r = FV - α * q. Flat constant penalty. α has no connection to
+    EV model:   r = FV - α * q. Linear, constant penalty. α has no connection to
                 volatility or time — purely a tunable number.
     AS model:   r = s - q * γ * σ² * T. Penalty grows with volatility, risk
                 aversion, and time horizon. Grounded in the theory.
 
 FAIR VALUE SOURCE
     EV model:   computes FV internally from transaction history.
-    AS model:   takes FV as an input. In this codebase it uses the EV model's output.
+    AS model:   takes FV as an input. In this codebase, it uses the EV model's output.
 
 WHAT THE OPTIMIZER TUNES
     EV model:   spread_multiplier (1 dimension).
-    AS model:   risk_aversion, liquidity, time_horizon (3 dimensions, grid search).
+    AS model:   risk_aversion, time_horizon (2 dimensions, grid search).
+                liquidity is no longer swept — it is derived from data.
                 Both use the same total_EV criterion to pick the winner.
 
 THEORETICAL BASIS
