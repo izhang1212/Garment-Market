@@ -1,4 +1,4 @@
-
+# Formatting functions for printing the report to the console
 def print_report(
     item,
     fair_value: float,

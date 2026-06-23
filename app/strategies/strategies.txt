@@ -1,0 +1,175 @@
+================================================================================
+EV MODEL
+================================================================================
+
+OVERVIEW
+--------
+The EV model is a heuristic approach. It does not derive an optimal spread from
+a formula. Instead, it simulates many candidate spreads and picks the one with
+the highest expected value. Because the bid and ask are centered around the
+reservation price (not fair value), and fill probability is measured from fair
+value, the two sides end up at different distances from FV. This means bid_EV
+and ask_EV are naturally different — the model implicitly penalizes taking on
+more inventory in the direction you are already loaded.
+
+
+PARAMETERS (inputs we provide)
+-----------
+- transactions:         historical trade records (price + timestamp)
+- decay_lambda (λ):     how fast old transactions lose relevance
+- spread_multipliers:   list of candidate spread widths to try (e.g. [1.0, 1.5, 2.0])
+- inventory (q):        how many units we currently hold
+- inventory_penalty (α): how aggressively to shift quotes for inventory
+- aggressiveness:       how steeply fill probability falls as quotes move away from FV
+- min_spread:           floor on the spread — never quote tighter than this
+
+
+VARIABLES (derived from parameters)
+---------
+Fair Value (FV):
+    FV = (∑ w_i * x_i) / ∑ w_i,  where  w_i = e^(-λ * t_i)
+    Recency-weighted average of transaction prices. Recent trades carry more weight.
+
+Volatility (σ):
+    σ = sqrt( (∑ w_i * (x_i - FV)²) / ∑ w_i )
+    Recency-weighted standard deviation around FV. Measures price uncertainty.
+
+Reservation Price (r):
+    r = FV - α * q
+    Our internal valuation adjusted for inventory. Excess inventory (q > 0)
+    lowers r, shifting our quotes downward to encourage selling.
+
+
+SIMULATING THE BEST BID/ASK
+----------------------------
+For each candidate spread_multiplier k, we generate a quote pair and score it.
+There is no formula that tells us the right k — we try all of them and pick the best.
+
+    spread   = max(k * σ,  min_spread)
+
+    bid      = r - spread / 2
+    ask      = r + spread / 2
+
+    Note: bid/ask are symmetric around r, but NOT symmetric around FV when q ≠ 0.
+    When long (q > 0), r < FV, so the ask is closer to FV than the bid is.
+
+Fill probability — measured as distance from FV:
+    P(fill_bid)  = exp(-aggressiveness * |bid - FV| / σ)
+    P(fill_ask)  = exp(-aggressiveness * |ask - FV| / σ)
+
+    A quote closer to FV is more likely to execute. Because ask is closer to FV
+    when long, P(fill_ask) > P(fill_bid) — the model is more likely to sell,
+    which is exactly the inventory correction we want.
+
+Expected value per side:
+    bid_EV   = (FV - bid)  * P(fill_bid)    ← profit per fill × chance of filling
+    ask_EV   = (ask - FV)  * P(fill_ask)
+
+    total_EV = bid_EV + ask_EV
+
+The spread_multiplier with the highest total_EV is chosen. The final bid/ask
+are the quotes from that winning candidate.
+
+
+
+
+================================================================================
+AVELLANEDA-STOIKOV MODEL
+================================================================================
+
+OVERVIEW
+--------
+The AS model derives the optimal spread analytically from a continuous-time
+stochastic control problem (Hamilton-Jacobi-Bellman equation). Rather than
+simulating candidate spreads, it computes exactly what the bid and ask should
+be given the model's parameters. The optimizer sweeps over uncertain parameter
+values (γ, κ, T) and uses the same EV scoring to find the best combination.
+
+
+PARAMETERS (inputs we provide)
+-----------
+- fair_value (s):           estimated true price (typically taken from EV model output)
+- volatility (σ):           price uncertainty (typically taken from EV model output)
+- inventory (q):            how many units we currently hold
+- risk_aversion (γ):        how much we penalize holding inventory risk
+- liquidity (κ):            rate at which market orders arrive
+- time_horizon (T):         how long we plan to be in the market
+- aggressiveness:           fill probability decay rate (shared with EV model)
+- min_spread:               floor on the spread
+
+
+VARIABLES (derived from parameters)
+---------
+Reservation Price (r):
+    r = s - q * γ * σ² * T
+    Inventory penalty scales with volatility, risk aversion, and time horizon.
+    As T → 0 (end of session), r → s and inventory barely affects the quote.
+
+Optimal Spread (δ):
+    δ = γ * σ² * T  +  (2/γ) * ln(1 + γ/κ)
+
+    Two components:
+      - Risk term    [γ * σ² * T]:         wider when vol / risk aversion / time is high
+      - Liquidity term [(2/γ) * ln(...)]:  wider when κ is low (few arriving orders),
+                                            so each fill needs to be more profitable
+
+
+FORMULAS FOR BID/ASK
+--------------------
+    bid  = r - δ / 2
+    ask  = r + δ / 2
+
+Unlike the EV model, the spread width is not searched — it is computed directly
+from the formula above. The quotes are symmetric around the reservation price
+because the model assumes buy and sell orders arrive at equal rates.
+
+EV scoring — used by the optimizer to select the best (γ, κ, T) combination:
+    P(fill_bid)  = exp(-aggressiveness * |bid - FV| / σ)
+    P(fill_ask)  = exp(-aggressiveness * |ask - FV| / σ)
+    bid_EV       = (FV - bid)  * P(fill_bid)
+    ask_EV       = (ask - FV)  * P(fill_ask)
+    total_EV     = bid_EV + ask_EV
+
+The optimizer sweeps all combinations of risk_aversion × liquidity × time_horizon
+and returns the candidate with the highest total_EV.
+
+
+
+
+================================================================================
+DIFFERENCES
+================================================================================
+
+HOW THE SPREAD IS DETERMINED
+    EV model:   no formula. Sweeps candidate spread_multipliers, picks best total_EV.
+                The spread width emerges from simulation, not theory.
+    AS model:   closed-form formula. δ = γσ²T + (2/γ)ln(1 + γ/κ).
+                Sweeps uncertain model parameters (γ, κ, T) instead of the spread itself.
+
+QUOTE SYMMETRY
+    EV model:   quotes are symmetric around r, but asymmetric relative to FV when
+                inventory ≠ 0. The bid and ask have different fill probabilities and
+                EVs — this asymmetry is what drives the inventory correction.
+    AS model:   also symmetric around r, same consequence relative to FV.
+                The δ/2 symmetry follows from assuming equal bid/ask arrival rates.
+
+INVENTORY PENALTY
+    EV model:   r = FV - α * q. Flat constant penalty. α has no connection to
+                volatility or time — purely a tunable number.
+    AS model:   r = s - q * γ * σ² * T. Penalty grows with volatility, risk
+                aversion, and time horizon. Grounded in the theory.
+
+FAIR VALUE SOURCE
+    EV model:   computes FV internally from transaction history.
+    AS model:   takes FV as an input. In this codebase it uses the EV model's output.
+
+WHAT THE OPTIMIZER TUNES
+    EV model:   spread_multiplier (1 dimension).
+    AS model:   risk_aversion, liquidity, time_horizon (3 dimensions, grid search).
+                Both use the same total_EV criterion to pick the winner.
+
+THEORETICAL BASIS
+    EV model:   heuristic. The fill probability formula is a reasonable approximation,
+                not a derived result. No proof of optimality.
+    AS model:   derived from a formal stochastic control problem. Under the model's
+                assumptions it produces the mathematically optimal quotes.

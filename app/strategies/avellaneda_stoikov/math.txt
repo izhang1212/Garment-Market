@@ -8,19 +8,19 @@ VARIABLES:
 - T (time horizon) how long you plan to trade
 
 KEY IDEAS:
-Reservation Price: r = μ − qγ(σ^2)T
-    - Interpretation: The true price to the trader, not the market
+Reservation Price: r = μ − (q·γ·σ²·T)
+    - Interpretation: The true price to the trader (based their position), not the market
     - Takes inventory (q) into account (i.e. if q > 0, price shifts down, if q < 0, price shifts up)
     - qγ(σ^2)T: inventory penalty term  
         - If T increases (longer horizon), the penalty becomes larger, and r shifts further away from FV
         - If T is small, r ~ μ, so we don't care much about the inventory since we are exiting the market soon
 
-Optimal Spread: γ(σ^2)T + (2/γ) * ​ln(1 + (γ/k)​)
-    - γ(σ^2)T: The risk term 
+Optimal Spread: γ·σ²·T + (2/γ)·​ln(1 + (γ/k)​)
+    - γ·σ²·T: The risk term 
         - higher volatility (σ) or risk aversion (γ) = wider spread
         - Larger time horizon (T) = more risk = wider spread
-            - If T is small, we only care about the liquidity term (i.e. how easy it is to exit)
-    - (2/γ) * ​ln(1 + (γ/k)​): Liquidity term
+            - If T is small, entire term has less weight; we only care about the liquidity term 
+    - (2/γ)·​ln(1 + (γ/k)​): Liquidity term (how hard to exit/fill)
         - low liquidity = higher spread, vise versa (harder to exit market)
 
 Bid/Ask Quotes: 

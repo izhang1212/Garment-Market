@@ -1,3 +1,4 @@
+# Sample parser for normalizing transaction and listing data from sources (StockX, GOAT, etc.)
 from datetime import datetime
 from typing import Any
 

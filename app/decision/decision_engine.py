@@ -1,4 +1,5 @@
-
+# Create trading decision (bid/ask/hold) based on strategy output
+    # Provide justification for decision as well
 def trading_decision(
     fair_value: float,
     volatility: float,
