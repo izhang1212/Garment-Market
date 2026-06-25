@@ -198,3 +198,67 @@ THEORETICAL BASIS
                 not a derived result. No proof of optimality.
     AS model:   derived from a formal stochastic control problem. Under the model's
                 assumptions it produces the mathematically optimal quotes.
+
+
+
+
+================================================================================
+PRACTICAL USE CASES
+================================================================================
+
+WHEN TO USE THE EV MODEL
+-------------------------
+Use the EV model when the market does not cleanly satisfy theoretical assumptions.
+Fashion resale is irregular — transactions are sparse, arrival rates are not truly
+Poisson, and prices do not follow geometric Brownian motion. The EV model makes
+none of those assumptions. It simply asks: "which quote produces the highest
+expected profit given how likely it is to fill?" That question is robust to messy,
+real-world market structure.
+
+It is also easier to debug. If the quotes look wrong, the cause is traceable:
+a spread too wide lowers fill probability, which lowers EV, which causes the
+optimizer to reject it. The logic is explicit at every step.
+
+Use the EV model when:
+    - Transaction history is sparse or irregular
+    - Market conditions do not fit clean theoretical assumptions
+    - Transparency and debuggability matter more than theoretical elegance
+    - You want a reliable baseline that degrades gracefully
+
+
+WHEN TO USE THE AVELLANEDA-STOIKOV MODEL
+-----------------------------------------
+Use the AS model when you want the quotes to respond coherently to multiple
+market conditions simultaneously. The AS spread automatically widens when
+volatility is high, when inventory is large, when liquidity is low, and when
+the time horizon is long — all at once, in a single formula derived from first
+principles. The EV model's spread is just k * σ, so it only directly responds
+to volatility. To get equivalent multi-factor behavior from the EV model you
+would need to layer on additional heuristics manually.
+
+The AS spread is also interpretable in a way the EV spread is not. The two
+components — the risk term (γσ²T) and the liquidity term ((2/γ)ln(1 + γ/κ)) —
+tell you exactly what is driving the width at any given moment. If the spread
+widens, you can immediately attribute it to either inventory risk or liquidity
+conditions.
+
+Use the AS model when:
+    - The market is active enough that Poisson arrival assumptions roughly hold
+    - You need quotes that jointly respond to volatility, inventory, liquidity,
+      and time horizon without manual tuning
+    - Interpretability of the spread components matters
+    - You want a theoretically grounded framework that scales to new items
+      without recalibrating heuristics
+
+
+FOR THIS PROJECT SPECIFICALLY
+------------------------------
+For a resale market with sparse, irregular transactions the EV model is likely
+more reliable in practice — the AS assumptions are clearly violated in thin
+markets like vintage or illiquid items (e.g. Nike Air Mag, Polo Bear Sweater).
+AS is the stronger academic contribution and the more elegant framework, but
+the EV model is more honest about what the data actually supports.
+
+The two models are best used together: run EV as a sanity check on AS output.
+If they agree, the quote is robust. If they diverge significantly, it is a
+signal that the market conditions are unusual and extra caution is warranted.
