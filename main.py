@@ -1,7 +1,8 @@
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
-from app.data.seed_data import seed_database
-from app.models.item import Item
+from app.data.seed_data import seed_database, seed_items_only
+from app.schemas.item import Item
+from app.config import settings
 
 from app.strategies import (
     compute_fair_value,
@@ -15,7 +16,17 @@ from app.reporting import print_report
 
 def main() -> None:
     Base.metadata.create_all(bind=engine)
-    seed_database()
+
+    if settings.kicks_db_api_key:
+        from app.data.kicks_db import KicksDBClient, load_all_items
+        print("KicksDB API key detected — loading real market data.\n")
+        seed_items_only()
+        client = KicksDBClient(settings.kicks_db_api_key)
+        load_all_items(client)
+    else:
+        print("No KICKS_DB_API_KEY set — using seed data.\n")
+        seed_database()
+
     db = SessionLocal()
 
     try:
@@ -25,7 +36,16 @@ def main() -> None:
             print("No items found.")
             return
 
+        MIN_TRANSACTIONS = 10
+
         for item in items:
+            if not item.transactions:
+                print(f"Skipping '{item.name}' — no transaction data.")
+                continue
+            if len(item.transactions) < MIN_TRANSACTIONS:
+                print(f"Skipping '{item.name}' — only {len(item.transactions)} transaction(s), need {MIN_TRANSACTIONS}.")
+                continue
+
             fair_value = compute_fair_value(item.transactions)
             volatility = compute_volatility(item.transactions)
             liquidity = compute_as_liquidity(item.transactions)
@@ -41,14 +61,14 @@ def main() -> None:
                 aggressiveness=1.0,
                 min_spread=0.0,
             )
- 
+
             decision = trading_decision(
                 fair_value=fair_value,
                 volatility=volatility,
                 inventory=inventory,
                 quote_result=quote_result,
             )
- 
+
             print_report(
                 item=item,
                 fair_value=fair_value,
@@ -58,7 +78,7 @@ def main() -> None:
                 quote_result=quote_result,
                 decision=decision,
             )
- 
+
     finally:
         db.close()
  

@@ -1,6 +1,6 @@
 from datetime import datetime
 from math import sqrt
-from app.models.transaction import Transaction
+from app.schemas.transaction import Transaction
 from .fair_value import age_in_days, recency_weight
 
 # computes the volatility (i.e. how much transaction fluctuates) around the FV

@@ -13,7 +13,7 @@ and 3 current listings per item. Designed to showcase different market condition
 from datetime import datetime, timedelta
 
 from app.db.session import SessionLocal
-from app.models import Item, Transaction, Listing
+from app.schemas import Item, Transaction, Listing
 
 _SOURCES = ["stockx", "goat", "ebay"]
 
@@ -40,6 +40,30 @@ def _listings(item_id: int, asks: list[float], now: datetime) -> list[Listing]:
                 source=_SOURCES[i], collected_at=now)
         for i in range(3)
     ]
+
+def seed_items_only() -> None:
+    """Create Item records without transactions or listings.
+
+    Used when the KicksDB pipeline will supply real transaction data.
+    No-op if items already exist.
+    """
+    db = SessionLocal()
+    try:
+        if db.query(Item).filter_by(sku="DD1391-100").first() is not None:
+            return
+        for entry in _build_catalog():
+            db.add(Item(
+                sku=entry["sku"],
+                name=entry["name"],
+                brand=entry["brand"],
+                category=entry["category"],
+                size=entry["size"],
+            ))
+        db.commit()
+        print("Item catalog seeded.")
+    finally:
+        db.close()
+
 
 def seed_database() -> None:
     db = SessionLocal()

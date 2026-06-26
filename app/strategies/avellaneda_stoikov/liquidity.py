@@ -1,5 +1,5 @@
 from datetime import datetime
-from app.models.transaction import Transaction
+from app.schemas.transaction import Transaction
 
 # Estimate Poisson arrival rate κ (trades per day) from transaction history.
     # κ = number of transactions / observation window in days

@@ -1,6 +1,6 @@
 from datetime import datetime
 from math import exp
-from app.models.transaction import Transaction
+from app.schemas.transaction import Transaction
 
 # convert time into days
 def age_in_days(transacted_at: datetime, now: datetime) -> float:
