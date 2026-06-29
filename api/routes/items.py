@@ -1,7 +1,7 @@
 import random
 import time
 from datetime import datetime, timedelta
-from math import log
+from math import log, sqrt
 from threading import Lock
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -72,11 +72,16 @@ def _run_models(transactions):
     vol = compute_volatility(transactions)
     liquidity = compute_as_liquidity(transactions)
 
+    # a = max(1.0, sqrt(κ)): floor at 1.0 so P(fill) always decays fast enough
+    # that extreme quotes never look attractive. Above κ=1, higher liquidity
+    # tightens the optimal spread (m* = 2/a shrinks as a grows).
+    aggressiveness = max(1.0, sqrt(max(liquidity, 0.0)))
+
     ev_quote, ev_candidates = find_best_quote(
         fair_value=fv,
         volatility=vol,
         inventory=0,
-        spread_multipliers=[0.5, 1.0, 1.5, 2.0, 2.5, 3.0],
+        aggressiveness=aggressiveness,
     )
     as_quote, _ = find_best_as_quote(
         fair_value=fv,
@@ -116,6 +121,7 @@ def _run_models(transactions):
             **ev_quote,
             "fair_value": fv,
             "volatility": vol,
+            "aggressiveness": aggressiveness,
             "candidates": [_round_floats(c) for c in ev_candidates],
         }),
         "as_model": _round_floats({

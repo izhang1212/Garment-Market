@@ -17,9 +17,9 @@ def compute_quotes(
     
     if spread < 0:
         raise ValueError("Spread cannot be negative")
-    
+
     half_spread = spread / 2.0
-    bid = reservation_price - half_spread
+    bid = max(1.0, reservation_price - half_spread)
     ask = reservation_price + half_spread
 
-    return bid,ask
+    return bid, ask

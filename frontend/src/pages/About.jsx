@@ -76,17 +76,18 @@ export default function About() {
 
           {/* Variable strip */}
           <p className="eyebrow mb-2">SHARED VARIABLES</p>
-          <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+          <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
             {[
-              { label: 'μ · FAIR VALUE',     value: 'WEIGHTED MEAN' },
-              { label: 'σ · VOLATILITY',     value: 'WEIGHTED STD' },
-              { label: 'Q · INVENTORY',      value: 'NET POSITION' },
-              { label: 'T · HORIZON (DAYS)', value: 'TRADE WINDOW' },
-              { label: 'Λ · DECAY',          value: '0.08 / DAY' },
+              { label: 'μ · FAIR VALUE',      value: 'WEIGHTED MEAN' },
+              { label: 'σ · VOLATILITY',      value: 'WEIGHTED STD' },
+              { label: 'Q · INVENTORY',       value: 'NET POSITION' },
+              { label: 'T · HORIZON (DAYS)',  value: 'TRADE WINDOW' },
+              { label: 'Λ · DECAY',           value: '0.08 / DAY' },
+              { label: 'κ · POISSON ARRIVAL', value: 'N_TRADES / T_WINDOW' },
             ].map(({ label, value }) => (
-              <div key={label} className="stat-cell" style={{ textAlign: 'left' }}>
-                <span className="stat-label">{label}</span>
-                <span className="stat-value-sm">{value}</span>
+              <div key={label} className="stat-cell" style={{ textAlign: 'left', padding: '0.85rem 0.9rem' }}>
+                <span className="stat-label" style={{ fontSize: '0.6rem', whiteSpace: 'nowrap' }}>{label}</span>
+                <span className="stat-value-sm" style={{ fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{value}</span>
               </div>
             ))}
           </div>
@@ -138,17 +139,16 @@ export default function About() {
               yielding closed-form expressions for the reservation price and optimal spread.
             </p>
             <Formula
-              label="Reservation Price, Spread & Liquidity"
+              label="Reservation Price & Spread"
               lines={[
                 'r = FV − q · γ · σ² · T',
                 'δ* = γσ²T + (2/γ) · ln(1 + γ/κ)',
-                'κ = N_trades / T_window',
+                'P(fill | side) = e^(−κ · δ / 2)',
               ]}
             />
             <p className="text-sm leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
-              γ is risk aversion, σ² is price variance, T is the trading horizon, q is inventory
-              and κ is the Poisson arrival rate of orders. spread widens under high volatility and
-              thin liquidity, automatically penalising risk.
+              γ is risk aversion, σ² is price variance, T is the trading horizon, q is inventory.
+              spread widens under high volatility and thin liquidity, automatically penalising risk.
             </p>
           </div>
         </div>
@@ -158,13 +158,13 @@ export default function About() {
           <p className="eyebrow mb-4">Decision Engine</p>
           <h3
             className="display-lg mb-5"
-            style={{ letterSpacing: '-0.03em' }}
+            style={{ letterSpacing: '-0.03em', fontSize: 'clamp(1.75rem, 3.8vw, 3rem)' }}
           >
             how they work together.
           </h3>
           <p
             className="leading-relaxed"
-            style={{ color: 'var(--muted-foreground)', maxWidth: '64ch', margin: '0 auto 2rem' }}
+            style={{ color: 'var(--muted-foreground)', maxWidth: '56rem', margin: '0 auto 2rem' }}
           >
             both models consume the same inputs, but approach the quoting problem differently. the ev model is
             simulation-based and depends on fill-probability assumptions; the avellaneda-stoikov model is
