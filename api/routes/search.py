@@ -89,11 +89,15 @@ def search_items(request: Request, q: str = Query(..., min_length=1), page: int 
 
     from app.data.kicks_db import KicksDBClient
 
+    # Fetch 2× PAGE_SIZE so we have a larger pool to rank by popularity.
+    # KicksDB caps results at 20 per page regardless of per_page value.
+    FETCH_SIZE = PAGE_SIZE * 2
+
     client = KicksDBClient(settings.kicks_db_api_key)
     try:
         data = client.get(
             "/stockx/products",
-            params={"query": q_norm, "page": page, "per_page": PAGE_SIZE},
+            params={"query": q_norm, "page": page, "per_page": FETCH_SIZE},
         )
     except Exception:
         # KicksDB unavailable — fall back to local DB so search still works
@@ -102,6 +106,10 @@ def search_items(request: Request, q: str = Query(..., min_length=1), page: int 
     products = data.get("data", data) if isinstance(data, dict) else data
     if not isinstance(products, list):
         products = []
+
+    # Sort the full pool by weekly_orders descending so the most-traded items
+    # surface first. Items with no weekly_orders field fall to the bottom.
+    products.sort(key=lambda p: p.get("weekly_orders") or 0, reverse=True)
 
     results = []
     for p in products[:PAGE_SIZE]:
@@ -119,6 +127,7 @@ def search_items(request: Request, q: str = Query(..., min_length=1), page: int 
             "image_url": p.get("image"),
         })
 
-    response = {"results": results, "has_more": len(products) >= PAGE_SIZE}
+    # has_more: KicksDB returned a full FETCH_SIZE page, so there's likely a next page
+    response = {"results": results, "has_more": len(products) >= FETCH_SIZE}
     _cache_set(cache_key, response)
     return response
