@@ -67,7 +67,6 @@ def seed_items_only() -> None:
 
 def seed_database() -> None:
     db = SessionLocal()
-
     try:
         existing_item = db.query(Item).filter_by(sku="DD1391-100").first()
         if existing_item is not None:
@@ -75,7 +74,6 @@ def seed_database() -> None:
             return
 
         now = datetime.now()
-
         catalog = _build_catalog()
 
         for entry in catalog:
@@ -103,7 +101,47 @@ def seed_database() -> None:
 
         db.commit()
         print("Seed data inserted successfully.")
+    finally:
+        db.close()
 
+
+def seed_missing_transactions() -> None:
+    """Backfill seed transactions for any items that have 0 transactions.
+
+    Safe to call on every startup: no-op if all items already have data.
+    This repairs the state caused by seed_items_only() running before
+    seed_database(), leaving items without transaction history.
+    """
+    from sqlalchemy import func
+    db = SessionLocal()
+    try:
+        catalog = _build_catalog()
+        catalog_map = {entry["sku"]: entry for entry in catalog}
+
+        items_no_tx = (
+            db.query(Item)
+            .outerjoin(Transaction, Transaction.item_id == Item.id)
+            .group_by(Item.id)
+            .having(func.count(Transaction.id) == 0)
+            .all()
+        )
+
+        if not items_no_tx:
+            return
+
+        now = datetime.now()
+        repaired = 0
+        for item in items_no_tx:
+            entry = catalog_map.get(item.sku)
+            if entry and entry.get("prices"):
+                txns = _txns(item.id, entry["prices"],
+                             entry["history_days"], entry["interval_hours"], now)
+                db.add_all(txns)
+                repaired += 1
+
+        if repaired:
+            db.commit()
+            print(f"Backfilled seed transactions for {repaired} items.")
     finally:
         db.close()
 

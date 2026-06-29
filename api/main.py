@@ -72,11 +72,9 @@ def _load_kicks_db_data() -> None:
 async def lifespan(app: FastAPI):
     _migrate()
 
-    from app.data.seed_data import seed_database
-    # Always seed the full dataset (25 items + transactions) so the site
-    # is immediately usable. If KicksDB is configured, real data is layered
-    # on top in a background thread without blocking startup.
+    from app.data.seed_data import seed_database, seed_missing_transactions
     seed_database()
+    seed_missing_transactions()  # repairs items that exist but have 0 transactions
 
     if settings.kicks_db_api_key:
         print("KicksDB API key detected — loading real market data in background.")

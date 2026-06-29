@@ -367,7 +367,7 @@ def get_item_detail(sku: str, request: Request):
         else:
             raise HTTPException(
                 status_code=422,
-                detail=f"Insufficient data for '{sku}': not found on KicksDB and no local transactions available.",
+                detail="Insufficient market data — this item has too few recent sales to generate a reliable quote.",
             )
 
     transactions.sort(key=lambda t: t.transacted_at)

@@ -63,15 +63,24 @@ export default function About() {
             <div style={{ fontSize: '0.78rem', color: 'var(--muted-foreground)', marginBottom: '0.25rem' }}>
               recency-weighted fair value
             </div>
-            <div style={{ marginBottom: '0.9rem' }}>μ = (Σ wᵢ · xᵢ) / Σ wᵢ</div>
+            <div style={{ marginBottom: '0.9rem' }}>
+              μ = (Σ wᵢ · xᵢ) / Σ wᵢ
+              <span style={{ color: 'var(--muted-foreground)' }}>, where xᵢ is the sale price and wᵢ is the corresponding weight for sale i</span>
+            </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--muted-foreground)', marginBottom: '0.25rem' }}>
               recency-weighted volatility
             </div>
-            <div style={{ marginBottom: '0.9rem' }}>σ = √( (Σ wᵢ · (xᵢ − μ)²) / Σ wᵢ )</div>
+            <div style={{ marginBottom: '0.9rem' }}>
+              σ = √( (Σ wᵢ · (xᵢ − μ)²) / Σ wᵢ )
+              <span style={{ color: 'var(--muted-foreground)' }}>, where μ is the fair value and (xᵢ − μ)² is the squared deviation of each sale from that midpoint</span>
+            </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--muted-foreground)', marginBottom: '0.25rem' }}>
               exponential decay weight · older sales discounted
             </div>
-            <div>wᵢ = e^(−λ · tᵢ), where λ = 0.08 day⁻¹</div>
+            <div>
+              wᵢ = e^(−λ · tᵢ)
+              <span style={{ color: 'var(--muted-foreground)' }}>, where λ = 0.08 day⁻¹ and tᵢ is the age of sale i in days</span>
+            </div>
           </div>
 
           {/* Variable strip */}
