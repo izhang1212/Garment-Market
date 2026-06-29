@@ -22,11 +22,45 @@ def _migrate() -> None:
         pass
 
 
+def _prefetch_images(client) -> None:
+    """Quick pass: fetch image URLs for items that don't have one yet.
+
+    Only does a search call per item (no sales fetching), so all images
+    are populated in ~5 seconds instead of after the full 1-2 min load.
+    """
+    from app.data.kicks_db import stockx as sx_pipeline
+    from app.db.session import SessionLocal
+    from app.schemas import Item
+
+    db = SessionLocal()
+    try:
+        items = db.query(Item).filter(Item.image_url.is_(None)).all()
+        for item in items:
+            try:
+                sx = sx_pipeline.search_product(client, item.sku)
+                if sx:
+                    img = (sx.get("image") or sx.get("thumbnail")
+                           or sx.get("imageUrl") or sx.get("image_url"))
+                    if img:
+                        item.image_url = img
+            except Exception:
+                pass
+        db.commit()
+        print(f"Background: images pre-fetched for {len(items)} items.")
+    except Exception as exc:
+        db.rollback()
+        print(f"Background: image pre-fetch failed — {exc}")
+    finally:
+        db.close()
+
+
 def _load_kicks_db_data() -> None:
     """Runs in a background thread after the server is already up."""
     try:
         from app.data.kicks_db import KicksDBClient, load_all_items
         client = KicksDBClient(settings.kicks_db_api_key)
+        # Images first (~5s) so the UI isn't blank while the full load runs
+        _prefetch_images(client)
         print("Background: loading KicksDB market data…")
         load_all_items(client)
         print("Background: KicksDB data load complete.")
@@ -69,6 +103,10 @@ from api.routes.search import router as search_router
 app.include_router(items_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 
+
+@app.get("/")
+def root():
+    return {"status": "ok"}
 
 @app.get("/api/health")
 def health():
