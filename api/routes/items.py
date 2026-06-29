@@ -274,69 +274,95 @@ def get_recent_feed(request: Request, limit: int = Query(12, le=30), db: Session
 
 @router.get("/items/{sku:path}/detail")
 def get_item_detail(sku: str, request: Request):
-    if not settings.kicks_db_api_key:
-        raise HTTPException(status_code=503, detail="KicksDB API key not configured")
-
-    # Per-IP rate limit first, then global budget check
+    # Per-IP and global rate limit
     _detail_limiter.check(client_ip(request))
     _detail_global.check("global")
 
-    # Serve from cache if fresh (avoids burning 2 KicksDB calls per repeat visit)
+    # Serve from cache if fresh
     cached = _detail_cache_get(sku)
     if cached is not None:
         return cached
 
-    from app.data.kicks_db import KicksDBClient
-    from app.data.kicks_db import stockx as sx_pipe
-    from app.data.kicks_db import goat as goat_pipe
-    from app.data.kicks_db.normalizer import (
-        stockx_sales_to_transactions,
-        goat_sales_to_transactions,
-    )
-
-    client = KicksDBClient(settings.kicks_db_api_key)
     transactions = []
     item_meta = None
 
-    sx_product = sx_pipe.search_product(client, sku)
-    if sx_product is not None:
-        pid = str(sx_product.get("id", sx_product.get("slug", "")))
-        sales = sx_pipe.fetch_sales(client, pid, 50)
-        if sales:
-            transactions.extend(stockx_sales_to_transactions(sales, 0))
-        if item_meta is None:
-            item_meta = {
-                "sku": sx_product.get("sku", sku),
-                "name": sx_product.get("title") or sx_product.get("name", sku),
-                "brand": sx_product.get("brand", ""),
-                "category": sx_product.get("product_type") or sx_product.get("category", ""),
-                "image_url": sx_product.get("image"),
-            }
-
-    goat_product = goat_pipe.search_product(client, sku)
-    if goat_product is not None:
-        pid = str(goat_product.get("id", ""))
-        sales = goat_pipe.fetch_sales(client, pid, 50)
-        if sales:
-            transactions.extend(goat_sales_to_transactions(sales, 0))
-        if item_meta is None:
-            item_meta = {
-                "sku": goat_product.get("sku", sku),
-                "name": goat_product.get("name") or goat_product.get("title", sku),
-                "brand": goat_product.get("brand_name", ""),
-                "category": goat_product.get("product_type", ""),
-                "image_url": (
-                    goat_product.get("main_picture_url")
-                    or goat_product.get("image")
-                    or goat_product.get("cover_picture")
-                ),
-            }
-
-    if len(transactions) < MIN_TRANSACTIONS:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Insufficient data: {len(transactions)} transactions found, need {MIN_TRANSACTIONS}",
+    # ── Try KicksDB first (live market data) ──────────────────────────────
+    if settings.kicks_db_api_key:
+        from app.data.kicks_db import KicksDBClient
+        from app.data.kicks_db import stockx as sx_pipe
+        from app.data.kicks_db import goat as goat_pipe
+        from app.data.kicks_db.normalizer import (
+            stockx_sales_to_transactions,
+            goat_sales_to_transactions,
         )
+
+        client = KicksDBClient(settings.kicks_db_api_key)
+
+        sx_product = sx_pipe.search_product(client, sku)
+        if sx_product is not None:
+            pid = str(sx_product.get("id", sx_product.get("slug", "")))
+            sales = sx_pipe.fetch_sales(client, pid, 50)
+            if sales:
+                transactions.extend(stockx_sales_to_transactions(sales, 0))
+            if item_meta is None:
+                item_meta = {
+                    "sku": sx_product.get("sku", sku),
+                    "name": sx_product.get("title") or sx_product.get("name", sku),
+                    "brand": sx_product.get("brand", ""),
+                    "category": sx_product.get("product_type") or sx_product.get("category", ""),
+                    "image_url": sx_product.get("image"),
+                }
+
+        goat_product = goat_pipe.search_product(client, sku)
+        if goat_product is not None:
+            pid = str(goat_product.get("id", ""))
+            sales = goat_pipe.fetch_sales(client, pid, 50)
+            if sales:
+                transactions.extend(goat_sales_to_transactions(sales, 0))
+            if item_meta is None:
+                item_meta = {
+                    "sku": goat_product.get("sku", sku),
+                    "name": goat_product.get("name") or goat_product.get("title", sku),
+                    "brand": goat_product.get("brand_name", ""),
+                    "category": goat_product.get("product_type", ""),
+                    "image_url": (
+                        goat_product.get("main_picture_url")
+                        or goat_product.get("image")
+                        or goat_product.get("cover_picture")
+                    ),
+                }
+
+    # ── Fall back to local DB if KicksDB returned nothing ─────────────────
+    # Covers: no API key configured, SKU not on StockX/GOAT (seed-only items),
+    # or KicksDB returned too few sales to model.
+    if len(transactions) < MIN_TRANSACTIONS:
+        local_db = SessionLocal()
+        try:
+            local_item = (
+                local_db.query(Item)
+                .options(joinedload(Item.transactions))
+                .filter(Item.sku == sku)
+                .first()
+            )
+        finally:
+            local_db.close()
+
+        if local_item and len(local_item.transactions) >= MIN_TRANSACTIONS:
+            transactions = local_item.transactions
+            # Use KicksDB metadata if we found any, otherwise use local record
+            if item_meta is None:
+                item_meta = {
+                    "sku": local_item.sku,
+                    "name": local_item.name,
+                    "brand": local_item.brand,
+                    "category": local_item.category,
+                    "image_url": local_item.image_url,
+                }
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Insufficient data for '{sku}': not found on KicksDB and no local transactions available.",
+            )
 
     transactions.sort(key=lambda t: t.transacted_at)
     models = _run_models(transactions)
