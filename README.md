@@ -111,7 +111,7 @@ Both models produce a bid and ask, but they answer fundamentally different quest
 
 **How each model arrives at a quote:**
 
-The EV model is purely numerical. It sweeps a range of spread multipliers and picks the one that maximises expected profit on each trade in isolation. The fill probability is a calibrated exponential — it decays with distance from fair value at a rate set by the aggressiveness parameter. There is no notion of time or inventory in the objective; each quote is treated as a one-shot bet. The model is easy to tune, but its fill probability curve is a modelling choice, not a derived result.
+The EV model is purely numerical. It sweeps a range of spread multipliers and picks the one that maximises expected profit on each trade in isolation. The fill probability is a calibrated exponential — it decays with distance from fair value at a rate set by the aggressiveness parameter. 
 
 The A-S model is analytical. It derives the optimal quote by solving the Hamilton–Jacobi–Bellman equation for a market maker managing a book over a finite horizon T. The fill probability emerges from the Poisson order-arrival assumption — it is not a free parameter. The reservation price shifts with inventory position, and the spread widens automatically as liquidity thins or volatility rises. The quote is not the best trade today; it is the best policy over the planning window.
 
@@ -160,4 +160,4 @@ Search results are ranked by `weekly_orders` (trades in the past 7 days) so that
 
 ---
 
-[garmentmarket.vercel.app](https://garmentmarket.vercel.app)
+[garment-market website](https://garment-market.com)
