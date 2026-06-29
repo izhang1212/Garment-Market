@@ -1,0 +1,767 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── design tokens ──────────────────────────────────────────────── */
+
+:root {
+  --radius: 0.25rem;
+
+  --bone:        oklch(0.94 0.012 90);
+  --ink:         oklch(0.16 0.005 60);
+  --field:       oklch(0.42 0.11 145);
+  --field-deep:  oklch(0.30 0.09 145);
+  --concrete:    oklch(0.82 0.008 90);
+  --up:          oklch(0.55 0.16 145);
+  --down:        oklch(0.55 0.18 28);
+
+  --background:         var(--bone);
+  --foreground:         var(--ink);
+  --card:               oklch(0.97 0.008 90);
+  --card-foreground:    var(--ink);
+  --primary:            var(--field);
+  --primary-foreground: oklch(0.98 0.005 90);
+  --secondary:          oklch(0.88 0.01 90);
+  --muted:              oklch(0.89 0.01 90);
+  --muted-foreground:   oklch(0.42 0.008 60);
+  --border:             oklch(0.80 0.008 80);
+}
+
+/* ── base ───────────────────────────────────────────────────────── */
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, kbd, pre, samp {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bone); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted-foreground); }
+}
+
+/* ── keyframes ──────────────────────────────────────────────────── */
+
+@keyframes gm-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+/* ── utilities ──────────────────────────────────────────────────── */
+
+@layer utilities {
+
+  /* layout */
+  .container-gm {
+    width: 100%;
+    max-width: 1320px;
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+  }
+
+  /* typography */
+  .eyebrow {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  .display-xl {
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: clamp(3.5rem, 9vw, 8rem);
+    line-height: 0.88;
+    letter-spacing: -0.045em;
+    text-transform: lowercase;
+  }
+
+  .display-lg {
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: clamp(2.25rem, 5vw, 4rem);
+    line-height: 0.92;
+    letter-spacing: -0.035em;
+    text-transform: lowercase;
+  }
+
+  /* chips / badges */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: color-mix(in oklab, var(--card) 60%, transparent);
+  }
+
+  .chip-field {
+    background: var(--field);
+    color: var(--primary-foreground);
+    border-color: var(--field);
+  }
+
+  /* ── nav ─────────────────────────────────────────────────────── */
+
+  .gm-nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in oklab, var(--background) 82%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  .gm-nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 0.9rem;
+    padding-bottom: 0.9rem;
+  }
+
+  .gm-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: -0.02em;
+    text-transform: lowercase;
+    color: var(--foreground);
+    text-decoration: none;
+  }
+
+  .gm-brand-mark {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    background: var(--field);
+    color: var(--primary-foreground);
+    border-radius: 0.35rem;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-weight: 700;
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .gm-nav-links {
+    display: flex;
+    gap: 0.25rem;
+    align-items: center;
+  }
+
+  .gm-nav-link {
+    padding: 0.5rem 0.9rem;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    border-radius: 0.3rem;
+    transition: color 0.15s, background 0.15s;
+    text-decoration: none;
+  }
+
+  .gm-nav-link:hover {
+    color: var(--field);
+    background: var(--secondary);
+  }
+
+  .gm-nav-link-active {
+    color: var(--foreground);
+    background: var(--secondary);
+  }
+
+  /* ── ticker ──────────────────────────────────────────────────── */
+
+  .ticker {
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--ink);
+    color: var(--bone);
+    overflow: hidden;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .ticker-track {
+    display: inline-flex;
+    gap: 2.5rem;
+    padding-top: 0.7rem;
+    padding-bottom: 0.7rem;
+    white-space: nowrap;
+    animation: gm-marquee 48s linear infinite;
+  }
+
+  .ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .ticker-up   { color: oklch(0.78 0.16 145); }
+  .ticker-down { color: oklch(0.72 0.18 28); }
+
+  /* ── hero ────────────────────────────────────────────────────── */
+
+  .hero {
+    padding-top: clamp(3rem, 8vw, 7rem);
+    padding-bottom: clamp(2rem, 5vw, 4rem);
+    position: relative;
+  }
+
+  .hero-title-row {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 2rem;
+    flex-wrap: wrap;
+  }
+
+  .hero-meta {
+    display: grid;
+    gap: 0.35rem;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    text-align: right;
+  }
+
+  /* ── surface / card ──────────────────────────────────────────── */
+
+  .surface {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .surface-pad {
+    padding: clamp(1rem, 2vw, 1.75rem);
+  }
+
+  .quote-card {
+    display: grid;
+    gap: 1.5rem;
+    padding: clamp(1.25rem, 2.5vw, 2rem);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .quote-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px dashed var(--border);
+  }
+
+  .quote-thumb {
+    width: 5rem;
+    height: 5rem;
+    border-radius: 0.5rem;
+    background: var(--muted);
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .quote-fv {
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: clamp(2rem, 4vw, 3rem);
+    letter-spacing: -0.03em;
+    color: var(--field);
+    line-height: 1;
+  }
+
+  /* ── bid/ask split ───────────────────────────────────────────── */
+
+  .ba-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .ba-cell {
+    padding: 1.25rem 1.5rem;
+    background: var(--card);
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  .ba-label {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  .ba-value {
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 2rem;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .ba-bid { color: var(--field); }
+  .ba-ask { color: var(--ink); }
+
+  .ba-meta {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    color: var(--muted-foreground);
+    margin-top: 0.4rem;
+  }
+
+  /* ── product cards ───────────────────────────────────────────── */
+
+  .product-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    display: block;
+    transition: transform 0.2s, border-color 0.2s;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    text-decoration: none;
+    color: var(--foreground);
+  }
+
+  .product-card:hover {
+    transform: translateY(-1px);
+    border-color: var(--field);
+  }
+
+  .product-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+  }
+
+  .product-sku {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.75rem;
+    color: var(--muted-foreground);
+  }
+
+  /* ── stat strip ──────────────────────────────────────────────── */
+
+  .stat-strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .stat-cell {
+    padding: 1.25rem 1.5rem;
+    background: var(--card);
+    display: grid;
+    gap: 0.35rem;
+  }
+
+  .stat-label {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  .stat-value {
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 1.75rem;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+
+  .stat-value-sm {
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+
+  /* ── trade feed ──────────────────────────────────────────────── */
+
+  .feed {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .feed-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    gap: 1rem;
+    align-items: center;
+    padding: 0.85rem 1.25rem;
+    border-top: 1px solid var(--border);
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.82rem;
+  }
+
+  .feed-row:first-child { border-top: 0; }
+
+  .feed-side-bid {
+    color: var(--field);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+
+  .feed-side-ask {
+    color: var(--down);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+
+  /* ── buttons ─────────────────────────────────────────────────── */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.85rem 1.4rem;
+    border-radius: var(--radius);
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.1s, background 0.15s, color 0.15s;
+    border: 1px solid transparent;
+    text-decoration: none;
+    background: none;
+  }
+
+  .btn-field {
+    background: var(--field);
+    color: var(--primary-foreground);
+    border-color: var(--field);
+  }
+
+  .btn-field:hover  { background: var(--field-deep); border-color: var(--field-deep); }
+  .btn-field:active { transform: translateY(1px); }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--foreground);
+    border-color: var(--border);
+  }
+
+  .btn-ghost:hover { background: var(--secondary); }
+
+  .btn-ink {
+    background: var(--ink);
+    color: var(--bone);
+  }
+
+  /* ── search ──────────────────────────────────────────────────── */
+
+  .search-shell {
+    display: flex;
+    align-items: center;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0.4rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .search-shell:focus-within {
+    border-color: var(--field);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--field) 18%, transparent);
+  }
+
+  .search-input {
+    flex: 1;
+    padding: 0.85rem 1rem;
+    background: transparent;
+    outline: none;
+    border: none;
+    font-size: 1rem;
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    color: var(--foreground);
+  }
+
+  .search-input::placeholder {
+    color: var(--muted-foreground);
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── chart frame ─────────────────────────────────────────────── */
+
+  .chart-frame {
+    background: color-mix(in oklab, var(--card) 92%, var(--muted));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+  }
+
+  /* ── model cards ─────────────────────────────────────────────── */
+
+  .model-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: clamp(1.5rem, 2.5vw, 2.25rem);
+    display: grid;
+    gap: 1.25rem;
+    position: relative;
+  }
+
+  .model-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--field);
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  /* ── formula blocks ──────────────────────────────────────────── */
+
+  .formula {
+    background: var(--ink);
+    color: var(--bone);
+    border-radius: var(--radius);
+    padding: 1.25rem 1.5rem;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.88rem;
+    line-height: 1.7;
+    letter-spacing: 0.02em;
+    overflow-x: auto;
+  }
+
+  .formula-label {
+    display: block;
+    font-size: 0.7rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: color-mix(in oklab, var(--bone) 50%, transparent);
+    margin-bottom: 0.75rem;
+  }
+
+  .formula-accent { color: oklch(0.78 0.16 145); }
+
+  /* ── footer ──────────────────────────────────────────────────── */
+
+  .gm-footer {
+    border-top: 1px solid var(--border);
+    background: var(--ink);
+    color: var(--bone);
+    padding-top: 3rem;
+    padding-bottom: 3rem;
+    margin-top: 4rem;
+  }
+
+  .gm-footer-grid {
+    display: grid;
+    grid-template-columns: 2fr repeat(3, 1fr);
+    gap: 2rem;
+  }
+
+  .gm-footer-col-title {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: color-mix(in oklab, var(--bone) 50%, transparent);
+    margin-bottom: 0.9rem;
+  }
+
+  .gm-footer-link {
+    display: block;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+    color: color-mix(in oklab, var(--bone) 80%, transparent);
+    font-size: 0.9rem;
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .gm-footer-link:hover { color: var(--bone); }
+
+  /* ── footer bottom bar ───────────────────────────────────────── */
+
+  .gm-footer-bottom {
+    border-top: 1px solid color-mix(in oklab, var(--bone) 12%, transparent);
+    margin-top: 2.5rem;
+    padding-top: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: color-mix(in oklab, var(--bone) 45%, transparent);
+  }
+
+  /* ── carousel ────────────────────────────────────────────────── */
+
+  .carousel-row {
+    display: flex;
+    gap: 1.25rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    padding-bottom: 0.5rem;
+  }
+
+  .carousel-row::-webkit-scrollbar { display: none; }
+
+  .carousel-card {
+    flex: 0 0 13rem;
+    scroll-snap-align: start;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    display: grid;
+    gap: 0.5rem;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.2s;
+    text-decoration: none;
+    color: var(--foreground);
+  }
+
+  .carousel-card:hover {
+    border-color: var(--field);
+    transform: translateY(-1px);
+  }
+
+  /* ── product price ───────────────────────────────────────────── */
+
+  .product-price {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+  }
+
+  .product-price-val {
+    font-family: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: -0.02em;
+  }
+
+  /* ── chip ────────────────────────────────────────────────────── */
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    background: var(--card);
+    text-decoration: none;
+  }
+
+  .chip:hover {
+    border-color: var(--field);
+    color: var(--field);
+  }
+
+  /* ── delta chip (filled green pill for badges) ───────────────── */
+
+  .delta-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.28rem 0.65rem;
+    border-radius: 999px;
+    background: var(--field);
+    color: #fff;
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    margin-top: 0.35rem;
+  }
+
+}
+
+/* ── responsive ─────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .gm-footer-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .hero-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .hero-meta {
+    text-align: left;
+  }
+}
+
+@media (max-width: 480px) {
+  .gm-footer-grid {
+    grid-template-columns: 1fr;
+  }
+}

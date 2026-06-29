@@ -62,6 +62,13 @@ def load_item(db: Session, item: Item, client: KicksDBClient) -> bool:
         if listing_records:
             new_listings += listing_records_to_listings(listing_records, item.id, "stockx", now)
 
+        # Capture image URL for the item record
+        if not item.image_url:
+            image_url = (sx_product.get("image") or sx_product.get("thumbnail")
+                         or sx_product.get("imageUrl") or sx_product.get("image_url"))
+            if image_url:
+                item.image_url = image_url
+
     # ── GOAT ────────────────────────────────────────────────────────────────
     goat_product = goat_pipeline.search_product(client, item.sku)
     if goat_product is None and item.sku != item.name:
@@ -79,6 +86,13 @@ def load_item(db: Session, item: Item, client: KicksDBClient) -> bool:
         listing_records = goat_pipeline.extract_listings(full_goat, item.size)
         if listing_records:
             new_listings += listing_records_to_listings(listing_records, item.id, "goat", now)
+
+        # Capture image URL from GOAT as fallback
+        if not item.image_url:
+            image_url = (goat_product.get("main_picture_url") or goat_product.get("image")
+                         or goat_product.get("cover_picture") or goat_product.get("imageUrl"))
+            if image_url:
+                item.image_url = image_url
 
     # ── Persist ─────────────────────────────────────────────────────────────
     if not new_transactions:

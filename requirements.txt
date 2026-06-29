@@ -2,3 +2,5 @@ python-dotenv
 sqlalchemy
 pydantic
 requests
+fastapi
+uvicorn[standard]
