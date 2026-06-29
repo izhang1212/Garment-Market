@@ -1,8 +1,24 @@
+# Secrets — never commit
 .env
+
+# Python
 .venv/
 __pycache__/
 *.pyc
+*.pyo
+
+# Database files — contain seeded/live data, not source
+*.db
+*.sqlite
+*.sqlite3
 app/data/processed/
+
+# Frontend build artifacts
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

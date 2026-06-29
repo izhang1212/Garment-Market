@@ -1,14 +1,18 @@
 import time
 from threading import Lock
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from app.config import settings
+from api.middleware.rate_limit import RateLimiter, client_ip
 
 router = APIRouter()
 
 PAGE_SIZE = 10
 CACHE_TTL = 120  # seconds — repeat searches within 2 min are instant
+
+# 20 searches/min per IP — cache makes most repeat queries free
+_search_limiter = RateLimiter(calls=20, period=60)
 
 _cache: dict[str, tuple[float, dict]] = {}
 _cache_lock = Lock()
@@ -34,7 +38,8 @@ def _clean(s) -> str:
 
 
 @router.get("/search")
-def search_items(q: str = Query(..., min_length=1), page: int = Query(1, ge=1)):
+def search_items(request: Request, q: str = Query(..., min_length=1), page: int = Query(1, ge=1)):
+    _search_limiter.check(client_ip(request))
     q_norm = q.strip().lower()
 
     # ── No API key: search local DB ───────────────────────────────────────────

@@ -1,7 +1,10 @@
 import random
+import time
 from datetime import datetime, timedelta
 from math import log
-from fastapi import APIRouter, Depends, HTTPException, Query
+from threading import Lock
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -16,8 +19,38 @@ from app.strategies import (
 )
 from app.decision import trading_decision
 from app.config import settings
+from api.middleware.rate_limit import RateLimiter, client_ip
 
 router = APIRouter()
+
+# ── Rate limiters ─────────────────────────────────────────────────────────────
+# /items/{sku}/detail makes 2 KicksDB calls — keep this tight
+_detail_limiter = RateLimiter(calls=8, period=60)      # 8 per IP per minute
+_detail_global  = RateLimiter(calls=200, period=3600)  # 200 total per hour (key="global")
+
+# Cheap DB-only endpoints
+_db_limiter = RateLimiter(calls=60, period=60)         # 60 per IP per minute
+
+# ── SKU response cache (10 min TTL) ──────────────────────────────────────────
+# Prevents the same shoe from burning 2 KicksDB calls per visitor.
+_detail_cache: dict[str, tuple[float, dict]] = {}
+_detail_cache_lock = Lock()
+DETAIL_CACHE_TTL = 600  # 10 minutes
+
+
+def _detail_cache_get(sku: str) -> dict | None:
+    with _detail_cache_lock:
+        entry = _detail_cache.get(sku)
+        if entry and time.time() - entry[0] < DETAIL_CACHE_TTL:
+            return entry[1]
+        if entry:
+            del _detail_cache[sku]
+    return None
+
+
+def _detail_cache_set(sku: str, data: dict) -> None:
+    with _detail_cache_lock:
+        _detail_cache[sku] = (time.time(), data)
 
 MIN_TRANSACTIONS = 1
 
@@ -106,7 +139,8 @@ def _run_models(transactions):
 
 
 @router.get("/stats")
-def get_stats(db: Session = Depends(get_db)):
+def get_stats(request: Request, db: Session = Depends(get_db)):
+    _db_limiter.check(client_ip(request))
     item_count = db.query(func.count(Item.id)).scalar() or 0
     tx_count = db.query(func.count(Transaction.id)).scalar() or 0
     total_volume = db.query(func.sum(Transaction.price)).scalar() or 0.0
@@ -129,7 +163,8 @@ def get_stats(db: Session = Depends(get_db)):
 
 
 @router.get("/items/popular")
-def get_popular_item(db: Session = Depends(get_db)):
+def get_popular_item(request: Request, db: Session = Depends(get_db)):
+    _db_limiter.check(client_ip(request))
     eligible_ids = (
         db.query(Item.id)
         .join(Item.transactions)
@@ -170,7 +205,8 @@ def get_popular_item(db: Session = Depends(get_db)):
 
 
 @router.get("/items/trending")
-def get_trending(limit: int = Query(6, le=20), db: Session = Depends(get_db)):
+def get_trending(request: Request, limit: int = Query(6, le=20), db: Session = Depends(get_db)):
+    _db_limiter.check(client_ip(request))
     eligible = (
         db.query(Item.id, func.count(Transaction.id).label("tx_count"))
         .join(Transaction)
@@ -215,7 +251,8 @@ def get_trending(limit: int = Query(6, le=20), db: Session = Depends(get_db)):
 
 
 @router.get("/items/recent-feed")
-def get_recent_feed(limit: int = Query(12, le=30), db: Session = Depends(get_db)):
+def get_recent_feed(request: Request, limit: int = Query(12, le=30), db: Session = Depends(get_db)):
+    _db_limiter.check(client_ip(request))
     rows = (
         db.query(Transaction, Item.sku, Item.name)
         .join(Item, Transaction.item_id == Item.id)
@@ -236,9 +273,18 @@ def get_recent_feed(limit: int = Query(12, le=30), db: Session = Depends(get_db)
 
 
 @router.get("/items/{sku:path}/detail")
-def get_item_detail(sku: str):
+def get_item_detail(sku: str, request: Request):
     if not settings.kicks_db_api_key:
         raise HTTPException(status_code=503, detail="KicksDB API key not configured")
+
+    # Per-IP rate limit first, then global budget check
+    _detail_limiter.check(client_ip(request))
+    _detail_global.check("global")
+
+    # Serve from cache if fresh (avoids burning 2 KicksDB calls per repeat visit)
+    cached = _detail_cache_get(sku)
+    if cached is not None:
+        return cached
 
     from app.data.kicks_db import KicksDBClient
     from app.data.kicks_db import stockx as sx_pipe
@@ -295,7 +341,7 @@ def get_item_detail(sku: str):
     transactions.sort(key=lambda t: t.transacted_at)
     models = _run_models(transactions)
 
-    return {
+    result = {
         "item": item_meta,
         "transactions": [
             {"price": t.price, "transacted_at": t.transacted_at.isoformat(), "source": t.source}
@@ -303,3 +349,5 @@ def get_item_detail(sku: str):
         ],
         **models,
     }
+    _detail_cache_set(sku, result)
+    return result

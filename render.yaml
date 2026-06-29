@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: garment-market-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: KICKS_DB_API_KEY
+        sync: false          # set manually in Render dashboard — never in code
+      - key: ALLOWED_ORIGINS
+        sync: false          # set to your Vercel URL, e.g. https://garment-market.vercel.app
+      - key: DEBUG
+        value: false
+      - key: DATABASE_URL
+        value: sqlite:///./app/data/processed/fashion_market.db
