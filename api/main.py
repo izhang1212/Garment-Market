@@ -38,16 +38,17 @@ def _load_kicks_db_data() -> None:
 async def lifespan(app: FastAPI):
     _migrate()
 
+    from app.data.seed_data import seed_database
+    # Always seed the full dataset (25 items + transactions) so the site
+    # is immediately usable. If KicksDB is configured, real data is layered
+    # on top in a background thread without blocking startup.
+    seed_database()
+
     if settings.kicks_db_api_key:
-        from app.data.seed_data import seed_items_only
-        print("KicksDB API key detected — seeding items, then loading market data in background.")
-        seed_items_only()
-        # Load KicksDB data after the server is up so Render detects the open port immediately
+        print("KicksDB API key detected — loading real market data in background.")
         threading.Thread(target=_load_kicks_db_data, daemon=True).start()
     else:
-        from app.data.seed_data import seed_database
-        print("No KICKS_DB_API_KEY — using seed data.")
-        seed_database()
+        print("No KICKS_DB_API_KEY — running on seed data.")
 
     yield
 
