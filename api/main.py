@@ -1,3 +1,4 @@
+import threading
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,10 +9,8 @@ from app.db.session import engine
 from app.config import settings
 
 
-def _startup() -> None:
+def _migrate() -> None:
     Base.metadata.create_all(bind=engine)
-
-    # Add image_url column to items if it doesn't exist yet (one-time migration).
     try:
         inspector = sa_inspect(engine)
         cols = [c["name"] for c in inspector.get_columns("items")]
@@ -22,24 +21,34 @@ def _startup() -> None:
     except Exception:
         pass
 
-    if settings.kicks_db_api_key:
-        from app.data.seed_data import seed_items_only
+
+def _load_kicks_db_data() -> None:
+    """Runs in a background thread after the server is already up."""
+    try:
         from app.data.kicks_db import KicksDBClient, load_all_items
-
-        print("KicksDB API key detected — loading real market data.\n")
-        seed_items_only()
         client = KicksDBClient(settings.kicks_db_api_key)
+        print("Background: loading KicksDB market data…")
         load_all_items(client)
-    else:
-        from app.data.seed_data import seed_database
-
-        print("No KICKS_DB_API_KEY set — using seed data.\n")
-        seed_database()
+        print("Background: KicksDB data load complete.")
+    except Exception as exc:
+        print(f"Background: KicksDB load failed — {exc}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _startup()
+    _migrate()
+
+    if settings.kicks_db_api_key:
+        from app.data.seed_data import seed_items_only
+        print("KicksDB API key detected — seeding items, then loading market data in background.")
+        seed_items_only()
+        # Load KicksDB data after the server is up so Render detects the open port immediately
+        threading.Thread(target=_load_kicks_db_data, daemon=True).start()
+    else:
+        from app.data.seed_data import seed_database
+        print("No KICKS_DB_API_KEY — using seed data.")
+        seed_database()
+
     yield
 
 
