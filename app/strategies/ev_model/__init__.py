@@ -7,7 +7,7 @@ from .expected_value import (
     compute_bid_expected_value,
     compute_ask_expected_value,
 )
-from .optimizer import evaluate_quote_candidate, find_best_quote
+from .optimizer import find_best_quote
 
 __all__ = [
     "compute_fair_value",
@@ -18,6 +18,5 @@ __all__ = [
     "compute_fill_probability",
     "compute_bid_expected_value",
     "compute_ask_expected_value",
-    "evaluate_quote_candidate",
-    "find_best_quote"
+    "find_best_quote",
 ]

@@ -1,61 +1,10 @@
 from math import sqrt
 
-from .spread import compute_base_spread
-from .inventory import compute_reservation_price, compute_quotes
 from .fill_probability import compute_fill_probability
+from .inventory import compute_reservation_price
 from .expected_value import compute_bid_expected_value, compute_ask_expected_value
 
 _PHI = (sqrt(5) - 1) / 2  # golden ratio ≈ 0.618
-
-
-def evaluate_quote_candidate(
-    fair_value: float,
-    volatility: float,
-    inventory: int,
-    spread_multiplier: float,
-    min_spread: float = 2.0,
-    inventory_penalty: float = 1.5,
-    aggressiveness: float = 1.0,
-) -> dict:
-    spread = compute_base_spread(
-        volatility=volatility,
-        spread_multiplier=spread_multiplier,
-        min_spread=min_spread,
-    )
-    reservation_price = compute_reservation_price(
-        fair_value=fair_value,
-        inventory=inventory,
-        inventory_penalty=inventory_penalty,
-    )
-    bid, ask = compute_quotes(reservation_price, spread)
-
-    bid_fill_prob = compute_fill_probability(
-        quote_price=bid,
-        fair_value=fair_value,
-        volatility=volatility,
-        aggressiveness=aggressiveness,
-    )
-    ask_fill_prob = compute_fill_probability(
-        quote_price=ask,
-        fair_value=fair_value,
-        volatility=volatility,
-        aggressiveness=aggressiveness,
-    )
-    bid_ev = compute_bid_expected_value(bid=bid, fair_value=fair_value, fill_probability=bid_fill_prob)
-    ask_ev = compute_ask_expected_value(ask=ask, fair_value=fair_value, fill_probability=ask_fill_prob)
-
-    return {
-        "spread_multiplier": spread_multiplier,
-        "spread": spread,
-        "reservation_price": reservation_price,
-        "bid": bid,
-        "ask": ask,
-        "bid_fill_probability": bid_fill_prob,
-        "ask_fill_probability": ask_fill_prob,
-        "bid_ev": bid_ev,
-        "ask_ev": ask_ev,
-        "total_ev": bid_ev + ask_ev,
-    }
 
 
 def _golden_section_max(f, a: float, b: float, tol: float = 1e-7) -> float:
@@ -72,11 +21,27 @@ def _golden_section_max(f, a: float, b: float, tol: float = 1e-7) -> float:
     return (a + b) / 2
 
 
+def _eval_bid(m: float, r: float, fv: float, vol: float, agg: float, min_half: float):
+    half = max(min_half, m * vol / 2.0)
+    bid = max(1.0, r - half)
+    p = compute_fill_probability(bid, fv, vol, agg)
+    ev = compute_bid_expected_value(bid, fv, p)
+    return bid, p, ev
+
+
+def _eval_ask(m: float, r: float, fv: float, vol: float, agg: float):
+    half = m * vol / 2.0
+    ask = r + half
+    p = compute_fill_probability(ask, fv, vol, agg)
+    ev = compute_ask_expected_value(ask, fv, p)
+    return ask, p, ev
+
+
 def find_best_quote(
     fair_value: float,
     volatility: float,
     inventory: int,
-    spread_multipliers: list[float] | None = None,  # ignored — kept for API compatibility
+    spread_multipliers=None,   # unused — kept for API compatibility
     min_spread: float = 2.0,
     inventory_penalty: float = 1.5,
     aggressiveness: float = 1.0,
@@ -84,64 +49,85 @@ def find_best_quote(
     m_hi: float = 6.0,
     showcase_delta: float = 0.25,
     n_showcase: int = 5,
-) -> tuple[dict, list[dict]]:
-    """Find the EV-optimal spread multiplier via golden-section search.
+) -> tuple[dict, dict]:
+    """Independently optimise the bid and ask spread multipliers.
 
-    Returns (best_quote, showcase_candidates).  showcase_candidates are
-    n_showcase evenly-spaced points centred on the optimum so the sweep
-    table in the UI can illustrate how EV changes around the peak.
+    Bid and ask EV decompose cleanly (no shared variables), so the
+    joint maximum equals the product of two 1-D maxima.  Golden-section
+    search finds each optimum exactly.
+
+    Returns (best_quote, candidates) where candidates = {"bid": [...], "ask": [...]}.
+    Each bid candidate sweeps m_bid while keeping ask fixed at its optimum;
+    each ask candidate does the reverse.  The middle row (index n_showcase//2)
+    in each list is always the optimum for that side.
     """
-    # Ensure bid = FV - m*σ/2 stays above $1. With inventory skew the
-    # reservation price may already be below FV, so use that as the floor.
-    reservation_price = fair_value - inventory_penalty * inventory
+    r = compute_reservation_price(fair_value, inventory, inventory_penalty)
+    min_half = min_spread / 2.0
+
+    # Clamp m_hi for the bid side so bid never drops below $1.
     if volatility > 0:
-        m_hi_bid_floor = (reservation_price - 1.0) * 2.0 / volatility
-        m_hi = min(m_hi, max(m_lo, m_hi_bid_floor))
+        m_hi_bid = min(m_hi, max(m_lo, (r - 1.0) * 2.0 / volatility))
+    else:
+        m_hi_bid = m_hi
 
-    def _ev(m: float) -> float:
-        return evaluate_quote_candidate(
-            fair_value=fair_value,
-            volatility=volatility,
-            inventory=inventory,
-            spread_multiplier=m,
-            min_spread=min_spread,
-            inventory_penalty=inventory_penalty,
-            aggressiveness=aggressiveness,
-        )["total_ev"]
-
-    m_star = _golden_section_max(_ev, m_lo, m_hi)
-
-    best = evaluate_quote_candidate(
-        fair_value=fair_value,
-        volatility=volatility,
-        inventory=inventory,
-        spread_multiplier=m_star,
-        min_spread=min_spread,
-        inventory_penalty=inventory_penalty,
-        aggressiveness=aggressiveness,
+    # ── Independent optimisation ──────────────────────────────────────────────
+    m_bid_star = _golden_section_max(
+        lambda m: _eval_bid(m, r, fair_value, volatility, aggressiveness, min_half)[2],
+        m_lo, m_hi_bid,
+    )
+    m_ask_star = _golden_section_max(
+        lambda m: _eval_ask(m, r, fair_value, volatility, aggressiveness)[2],
+        m_lo, m_hi,
     )
 
-    # Build showcase candidates: n_showcase points centred on m_star.
-    # The middle slot is replaced with the exact m_star so the table
-    # highlight (which matches on spread_multiplier) always finds a winner.
+    best_bid, best_bid_p, best_bid_ev = _eval_bid(m_bid_star, r, fair_value, volatility, aggressiveness, min_half)
+    best_ask, best_ask_p, best_ask_ev = _eval_ask(m_ask_star, r, fair_value, volatility, aggressiveness)
+    best_total_ev = best_bid_ev + best_ask_ev
+
+    # ── Showcase candidates ───────────────────────────────────────────────────
     half = n_showcase // 2
-    mults = [
-        max(m_lo, min(m_hi, m_star + (k - half) * showcase_delta))
-        for k in range(n_showcase)
-    ]
-    mults[half] = m_star  # exact value for the winning row
 
-    candidates = [
-        evaluate_quote_candidate(
-            fair_value=fair_value,
-            volatility=volatility,
-            inventory=inventory,
-            spread_multiplier=m,
-            min_spread=min_spread,
-            inventory_penalty=inventory_penalty,
-            aggressiveness=aggressiveness,
-        )
-        for m in mults
-    ]
+    bid_mults = [max(m_lo, min(m_hi_bid, m_bid_star + (k - half) * showcase_delta)) for k in range(n_showcase)]
+    bid_mults[half] = m_bid_star
 
-    return best, candidates
+    ask_mults = [max(m_lo, min(m_hi, m_ask_star + (k - half) * showcase_delta)) for k in range(n_showcase)]
+    ask_mults[half] = m_ask_star
+
+    bid_candidates = []
+    for m in bid_mults:
+        bid, p, ev = _eval_bid(m, r, fair_value, volatility, aggressiveness, min_half)
+        bid_candidates.append({
+            "multiplier":  m,
+            "bid":         bid,
+            "fill_prob":   p,
+            "ev_bid":      ev,
+            "total_ev":    ev + best_ask_ev,   # vary bid, ask fixed at optimum
+        })
+
+    ask_candidates = []
+    for m in ask_mults:
+        ask, p, ev = _eval_ask(m, r, fair_value, volatility, aggressiveness)
+        ask_candidates.append({
+            "multiplier":  m,
+            "ask":         ask,
+            "fill_prob":   p,
+            "ev_ask":      ev,
+            "total_ev":    best_bid_ev + ev,   # vary ask, bid fixed at optimum
+        })
+
+    best_quote = {
+        "bid":                  best_bid,
+        "ask":                  best_ask,
+        "bid_multiplier":       m_bid_star,
+        "ask_multiplier":       m_ask_star,
+        "spread_multiplier":    (m_bid_star + m_ask_star) / 2.0,  # compat field
+        "spread":               best_ask - best_bid,
+        "reservation_price":    r,
+        "bid_fill_probability": best_bid_p,
+        "ask_fill_probability": best_ask_p,
+        "bid_ev":               best_bid_ev,
+        "ask_ev":               best_ask_ev,
+        "total_ev":             best_total_ev,
+    }
+
+    return best_quote, {"bid": bid_candidates, "ask": ask_candidates}

@@ -272,6 +272,17 @@ export default function Home() {
                 </span>
               </div>
             </div>
+
+            {/* Analyse CTA */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '0.85rem 1.25rem', borderTop: '1px solid var(--border)' }}>
+              <Link
+                to={`/items/${encodeURIComponent(data.item.sku)}`}
+                className="btn btn-field"
+                style={{ fontSize: '0.72rem', letterSpacing: '0.12em', padding: '0.5rem 1.1rem' }}
+              >
+                ANALYSE →
+              </Link>
+            </div>
           </div>
         )}
       </div>

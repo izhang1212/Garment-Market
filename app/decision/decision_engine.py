@@ -4,8 +4,8 @@ Layer 5 — Decision Engine
 Combines the four upstream layers into a final recommendation.
 
 Pipeline:
-  estimation  → Kalman FV + velocity
-  signals     → Z-score  (deviation of latest price from Kalman FV)
+  estimation  → Kalman velocity (FV selection handled upstream)
+  signals     → Z-score  (deviation of latest price from adaptive FV)
   regime      → OU half-life  (how quickly prices mean-revert)
   sizing      → Kelly fraction  (position size per side)
 
@@ -56,9 +56,8 @@ def trading_decision(
     ask_ev   = quote_result["ask_ev"]
     total_ev = quote_result["total_ev"]
 
-    kfv          = kalman["fair_value"]
-    velocity     = kalman["velocity"]                           # $/day
-    velocity_pct = velocity / max(kfv, 1.0) * 100              # %/day
+    velocity     = kalman["velocity"]                             # $/day
+    velocity_pct = velocity / max(fair_value, 1.0) * 100        # %/day
 
     z_val    = z_score["value"]
     z_label  = z_score["label"]
@@ -116,7 +115,6 @@ def trading_decision(
         # reasoning chain without recomputing anything.
         "signals": {
             "kalman": {
-                "fair_value":          kfv,
                 "velocity":            round(velocity, 4),
                 "velocity_pct_per_day": round(velocity_pct, 4),
             },

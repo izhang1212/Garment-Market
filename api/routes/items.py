@@ -74,20 +74,44 @@ def _round_floats(d: dict) -> dict:
     return {k: (round(v, 4) if isinstance(v, float) else v) for k, v in d.items()}
 
 
-def _run_models(transactions):
-    # ── Spread models (unchanged) ─────────────────────────────────────────────
-    fv        = compute_fair_value(transactions)
+_RECENT_DAYS     = 90   # window for counting "meaningful" recent transactions
+_KALMAN_MIN      = 5    # min recent transactions to trust Kalman level as FV
+
+
+def _run_models(transactions, inventory: int = 0):
+    # ── Layer 1: Kalman filter — run first so we can use its level for FV if
+    #    there is enough recent data, and its velocity for the decision gate.
+    kalman = kalman_estimate(transactions)
+
+    # ── Adaptive FV selection ─────────────────────────────────────────────────
+    # Count transactions in the last 90 days.  ≥5 → Kalman level is a reliable
+    # current-price estimate and replaces the recency-weighted mean.  <5 → the
+    # velocity estimate is too noisy to trust; fall back to recency-weighted FV
+    # computed over the full history.
+    cutoff   = datetime.utcnow() - timedelta(days=_RECENT_DAYS)
+    n_recent = sum(1 for t in transactions if t.transacted_at >= cutoff)
+    fv = kalman["fair_value"] if n_recent >= _KALMAN_MIN else compute_fair_value(transactions)
+
     vol       = compute_volatility(transactions)
     liquidity = compute_as_liquidity(transactions)
 
     aggressiveness = max(1.0, sqrt(max(liquidity, 0.0)))
 
+    # EV inventory penalty: 1% of fair value per unit held.
+    # Scales naturally with item price — a $200 sneaker costs $2/unit to hold,
+    # a $600 item costs $6/unit.  Kept independent of A-S so the two models
+    # represent genuinely different approaches to inventory risk.
+    EV_ALPHA = 0.01
+    ev_penalty = EV_ALPHA * fv
+
     ev_quote, ev_candidates = find_best_quote(
-        fair_value=fv, volatility=vol, inventory=0,
+        fair_value=fv, volatility=vol, inventory=inventory,
         aggressiveness=aggressiveness,
+        inventory_penalty=ev_penalty,
     )
+
     as_quote, _ = find_best_as_quote(
-        fair_value=fv, volatility=vol, inventory=0,
+        fair_value=fv, volatility=vol, inventory=inventory,
         risk_aversion_values=[0.001, 0.005, 0.01, 0.02, 0.05],
         liquidity_values=[liquidity],
         time_horizon_values=[0.5, 1.0, 2.0],
@@ -100,18 +124,15 @@ def _run_models(transactions):
         winner_quote, winner_name = as_quote, "avellaneda_stoikov"
 
     # ── Decision pipeline ─────────────────────────────────────────────────────
-    # Layer 1: Kalman filter → filtered FV + velocity (replaces linear regression)
-    kalman  = kalman_estimate(transactions)
+    # Layer 2: Z-score of latest price vs adaptive FV (in units of weighted vol)
+    z_score = compute_z_score(transactions, fv, vol)
 
-    # Layer 2: Z-score of latest price vs Kalman FV (in units of weighted vol)
-    z_score = compute_z_score(transactions, kalman["fair_value"], vol)
-
-    # Layer 3: OU half-life → regime (arbitrates Z-score vs velocity)
+    # Layer 3: OU half-life → regime (arbitrates Z-score vs velocity gate)
     regime  = ou_half_life(transactions)
 
-    # Layer 4: Kelly fraction per side (replaces binary EV/fill gate)
+    # Layer 4: Kelly fraction per side
     sizing  = compute_sizing(
-        fair_value    = kalman["fair_value"],
+        fair_value    = fv,
         bid           = winner_quote["bid"],
         ask           = winner_quote["ask"],
         bid_fill_prob = winner_quote["bid_fill_probability"],
@@ -120,7 +141,7 @@ def _run_models(transactions):
 
     # Layer 5: Final decision
     decision = trading_decision(
-        fair_value=fv, volatility=vol, inventory=0,
+        fair_value=fv, volatility=vol, inventory=inventory,
         quote_result=winner_quote,
         kalman=kalman, z_score=z_score, regime=regime, sizing=sizing,
     )
@@ -140,10 +161,13 @@ def _run_models(transactions):
         "fair_value": round(fv, 2),
         "ev_model": _round_floats({
             **ev_quote,
-            "fair_value":    fv,
-            "volatility":    vol,
-            "aggressiveness": aggressiveness,
-            "candidates":    [_round_floats(c) for c in ev_candidates],
+            "fair_value":        fv,
+            "volatility":        vol,
+            "aggressiveness":    aggressiveness,
+            "inventory_alpha":   EV_ALPHA,
+            "inventory_penalty": ev_penalty,
+            "bid_candidates":    [_round_floats(c) for c in ev_candidates["bid"]],
+            "ask_candidates":    [_round_floats(c) for c in ev_candidates["ask"]],
         }),
         "as_model": _round_floats({
             **as_quote,
@@ -300,13 +324,20 @@ def get_recent_feed(request: Request, limit: int = Query(12, le=30), db: Session
 
 
 @router.get("/items/{sku:path}/detail")
-def get_item_detail(sku: str, request: Request):
+def get_item_detail(
+    sku: str,
+    request: Request,
+    size: str = Query("all"),
+    inventory: int = Query(0),
+):
     # Per-IP and global rate limit
     _detail_limiter.check(client_ip(request))
     _detail_global.check("global")
 
-    # Serve from cache if fresh
-    cached = _detail_cache_get(sku)
+    # Serve from cache if fresh (cache key includes size + inventory)
+    size_norm = size.strip().lower()
+    cache_key = f"{sku}:{size_norm}:{inventory}"
+    cached = _detail_cache_get(cache_key)
     if cached is not None:
         return cached
 
@@ -317,12 +348,23 @@ def get_item_detail(sku: str, request: Request):
     # and acts as the guaranteed fallback for metadata and transactions.
     local_db = SessionLocal()
     try:
-        local_item = (
-            local_db.query(Item)
-            .options(joinedload(Item.transactions))
-            .filter(Item.sku == sku)
-            .first()
-        )
+        # When a specific size is requested, prefer the matching local item so
+        # the fallback path doesn't use a different size's transaction history.
+        local_item = None
+        if size_norm != "all":
+            local_item = (
+                local_db.query(Item)
+                .options(joinedload(Item.transactions))
+                .filter(Item.sku == sku, Item.size.ilike(size_norm))
+                .first()
+            )
+        if local_item is None:
+            local_item = (
+                local_db.query(Item)
+                .options(joinedload(Item.transactions))
+                .filter(Item.sku == sku)
+                .first()
+            )
     finally:
         local_db.close()
 
@@ -368,7 +410,14 @@ def get_item_detail(sku: str, request: Request):
 
         if sx_product is not None:
             pid = str(sx_product.get("id", sx_product.get("slug", "")))
-            sales = sx_pipe.fetch_sales(client, pid, 50)
+            # Size filtering: fetch the variant for the requested size, then
+            # pass its id to fetch_sales so only that size's records come back.
+            sx_variant_id: str | None = None
+            if size_norm != "all":
+                full_product = sx_pipe.get_product_with_variants(client, pid)
+                if full_product is not None:
+                    sx_variant_id = sx_pipe.find_variant_id(full_product, size)
+            sales = sx_pipe.fetch_sales(client, pid, 50, variant_id=sx_variant_id)
             if sales:
                 transactions.extend(stockx_sales_to_transactions(sales, 0))
             if item_meta is None:
@@ -390,7 +439,8 @@ def get_item_detail(sku: str, request: Request):
         )
         if goat_product is not None:
             pid = str(goat_product.get("id", ""))
-            sales = goat_pipe.fetch_sales(client, pid, 50)
+            goat_size = size if size_norm != "all" else None
+            sales = goat_pipe.fetch_sales(client, pid, 50, size_us=goat_size)
             if sales:
                 transactions.extend(goat_sales_to_transactions(sales, 0))
             if item_meta is None:
@@ -433,7 +483,7 @@ def get_item_detail(sku: str, request: Request):
             )
 
     transactions.sort(key=lambda t: t.transacted_at)
-    models = _run_models(transactions)
+    models = _run_models(transactions, inventory=inventory)
 
     result = {
         "item": item_meta,
@@ -443,5 +493,5 @@ def get_item_detail(sku: str, request: Request):
         ],
         **models,
     }
-    _detail_cache_set(sku, result)
+    _detail_cache_set(cache_key, result)
     return result

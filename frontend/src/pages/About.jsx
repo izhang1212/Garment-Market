@@ -37,62 +37,83 @@ export default function About() {
 
         {/* Shared inputs */}
         <div className="surface surface-pad mb-5">
-          <p className="eyebrow mb-3">SHARED INPUTS · RECENCY-WEIGHTED</p>
+          <p className="eyebrow mb-3">SHARED INPUTS · ADAPTIVE ESTIMATION</p>
           <h2 className="display-lg mb-4" style={{ letterSpacing: '-0.03em' }}>
             same signal.{' '}
             <span style={{ color: 'var(--field)' }}>two engines.</span>
           </h2>
           <p className="leading-relaxed mb-5" style={{ color: 'var(--muted-foreground)' }}>
             both models consume identical inputs derived from the same transaction history of an item.
-            each sale is assigned a recency weight so that recent trades exert more influence on μ and σ.
-            the same weighted fair value and volatility then flow into both models.
+            fair value is computed adaptively; a Kalman filter is used when the item has enough recent
+            sales and a recency-weighted mean is used otherwise. volatility is always recency-weighted.
           </p>
 
-          {/* Formula box — light surface, not black */}
-          <p className="eyebrow mb-2">RECENCY-WEIGHTED ESTIMATORS</p>
+          {/* Estimation methods */}
+          <p className="eyebrow mb-2">ESTIMATION METHODS</p>
           <div style={{
             background: 'var(--card)',
             border: '1px solid var(--border)',
             borderRadius: 'var(--radius)',
             padding: '1.25rem 1.5rem',
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: '0.88rem',
+            fontSize: '0.85rem',
             lineHeight: 1.85,
             marginBottom: '1.5rem',
           }}>
-            <div style={{ fontSize: '0.78rem', color: 'var(--muted-foreground)', marginBottom: '0.25rem' }}>
-              recency-weighted fair value
+
+            {/* Adaptive FV */}
+            <div style={{ fontSize: '0.72rem', color: 'var(--muted-foreground)', marginBottom: '0.2rem' }}>
+              fair value · adaptive
             </div>
-            <div style={{ marginBottom: '0.9rem' }}>
-              μ = (Σ wᵢ · xᵢ) / Σ wᵢ
-              <span style={{ color: 'var(--muted-foreground)' }}>, where xᵢ is the sale price and wᵢ is the corresponding weight for sale i</span>
+            <div style={{ marginBottom: '0.25rem' }}>
+              μ = <span style={{ color: 'var(--field)' }}>Kalman level</span>
+              <span style={{ color: 'var(--muted-foreground)' }}>, if ≥5 sales in last 90 days</span>
             </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--muted-foreground)', marginBottom: '0.25rem' }}>
-              recency-weighted volatility
+            <div style={{ marginBottom: '1rem' }}>
+              μ = <span style={{ color: 'var(--field)' }}>(Σ wᵢ · xᵢ) / Σ wᵢ</span>
+              <span style={{ color: 'var(--muted-foreground)' }}>, otherwise (recency-weighted mean)</span>
             </div>
-            <div style={{ marginBottom: '0.9rem' }}>
+
+            {/* Volatility */}
+            <div style={{ fontSize: '0.72rem', color: 'var(--muted-foreground)', marginBottom: '0.2rem' }}>
+              volatility · recency-weighted
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
               σ = √( (Σ wᵢ · (xᵢ − μ)²) / Σ wᵢ )
-              <span style={{ color: 'var(--muted-foreground)' }}>, where μ is the fair value and (xᵢ − μ)² is the squared deviation of each sale from that midpoint</span>
+              <span style={{ color: 'var(--muted-foreground)' }}>, where μ is the recency-weighted mean</span>
             </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--muted-foreground)', marginBottom: '0.25rem' }}>
+
+            {/* Weight */}
+            <div style={{ fontSize: '0.72rem', color: 'var(--muted-foreground)', marginBottom: '0.2rem' }}>
               exponential decay weight · older sales discounted
             </div>
-            <div>
+            <div style={{ marginBottom: '1rem' }}>
               wᵢ = e^(−λ · tᵢ)
-              <span style={{ color: 'var(--muted-foreground)' }}>, where λ = 0.08 day⁻¹ and tᵢ is the age of sale i in days</span>
+              <span style={{ color: 'var(--muted-foreground)' }}>, where λ = 0.08 day⁻¹, tᵢ = age of sale i in days</span>
             </div>
+
+            {/* Liquidity + aggressiveness */}
+            <div style={{ fontSize: '0.72rem', color: 'var(--muted-foreground)', marginBottom: '0.2rem' }}>
+              liquidity &amp; aggressiveness
+            </div>
+            <div style={{ marginBottom: '0.25rem' }}>
+              κ = N_trades / T_window
+              <span style={{ color: 'var(--muted-foreground)' }}>,  (poisson arrival rate)</span>
+            </div>
+            <div>
+              α = max(√κ, 1)
+              <span style={{ color: 'var(--muted-foreground)' }}>, (spread aggressiveness — wider spread for thin markets)</span>
+            </div>
+
           </div>
 
-          {/* Variable strip */}
-          <p className="eyebrow mb-2">SHARED VARIABLES</p>
-          <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(6, 1fr)' }}>
+          {/* Constants */}
+          <p className="eyebrow mb-2">FIXED PARAMETERS</p>
+          <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
             {[
-              { label: 'μ · FAIR VALUE',      value: 'WEIGHTED MEAN' },
-              { label: 'σ · VOLATILITY',      value: 'WEIGHTED STD' },
-              { label: 'Q · INVENTORY',       value: 'NET POSITION' },
-              { label: 'T · HORIZON (DAYS)',  value: 'TRADE WINDOW' },
-              { label: 'Λ · DECAY',           value: '0.08 / DAY' },
-              { label: 'κ · POISSON ARRIVAL', value: 'N_TRADES / T_WINDOW' },
+              { label: 'Q · INVENTORY',  value: 'INVENTORY' },
+              { label: 'T · HORIZON',    value: 'TRADE WINDOW' },
+              { label: 'Λ · DECAY RATE', value: '0.08 / DAY' },
             ].map(({ label, value }) => (
               <div key={label} className="stat-cell" style={{ textAlign: 'left', padding: '0.85rem 0.9rem' }}>
                 <span className="stat-label" style={{ fontSize: '0.6rem', whiteSpace: 'nowrap' }}>{label}</span>
@@ -143,8 +164,8 @@ export default function About() {
               <span style={{ color: 'var(--field)' }}>derive</span>
             </h2>
             <p className="leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
-              The avellaneda-stoikov model derives optimal quotes analytically from a stochastic control framework.
-              it solves the Hamilton–Jacobi–Bellman equation for a market maker with inventory risk,
+              the avellaneda-stoikov model derives optimal quotes analytically from a stochastic control framework.
+              it solves the hamilton–jacobi–bellman equation for a market maker with inventory risk,
               yielding closed-form expressions for the reservation price and optimal spread.
             </p>
             <Formula
@@ -167,7 +188,7 @@ export default function About() {
 
           {/* Header — centred */}
           <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-            <p className="eyebrow mb-4">Decision Engine</p>
+            <p className="eyebrow mb-4">decision engine</p>
             <h3
               className="display-lg mb-5"
               style={{ letterSpacing: '-0.03em', fontSize: 'clamp(1.75rem, 3.8vw, 3rem)' }}
@@ -196,13 +217,13 @@ export default function About() {
             {[
               {
                 id: 'L1', tag: 'KALMAN',
-                q: 'where is price now?',
-                body: 'tracks the price trend through all historical sales, filtering out noise. outputs a current fair value and whether the price is drifting up or down.',
+                q: 'is price trending up or down?',
+                body: 'runs a constant-velocity filter over all transactions to extract the velocity ($/day). if the item has ≥5 sales in the last 90 days, the Kalman level also becomes the fair value used in every downstream step.',
               },
               {
                 id: 'L2', tag: 'Z-SCORE',
                 q: 'is the last sale an anomaly?',
-                body: 'compares the most recent transaction to the fair value. a sale far above or below fair value is flagged — it may signal an opportunity, or just noise.',
+                body: 'compares the most recent transaction to the adaptive fair value. a sale far above or below it is flagged — it may signal an opportunity, or just noise to ignore.',
               },
               {
                 id: 'L3', tag: 'OU REGIME',

@@ -52,13 +52,13 @@ function VerdictSection({ action, signals, bidGate, askGate, decision }) {
       reasons.push('Bid suppressed: Kelly fraction below minimum.')
     else if (!bidGate?.primary_passes)
       reasons.push(isMeanRev
-        ? `Bid suppressed: market expensive at ${(z.value ?? 0).toFixed(2)}σ above Kalman FV.`
+        ? `Bid suppressed: market expensive at ${(z.value ?? 0).toFixed(2)}σ above fair value.`
         : `Bid suppressed: price declining at ${Math.abs(velPct).toFixed(2)}%/day.`)
     if (!askGate?.kelly_passes)
       reasons.push('Ask suppressed: Kelly fraction below minimum.')
     else if (!askGate?.primary_passes)
       reasons.push(isMeanRev
-        ? `Ask suppressed: market cheap at ${Math.abs(z.value ?? 0).toFixed(2)}σ below Kalman FV.`
+        ? `Ask suppressed: market cheap at ${Math.abs(z.value ?? 0).toFixed(2)}σ below fair value.`
         : `Ask suppressed: price rising at ${Math.abs(velPct).toFixed(2)}%/day.`)
     if (!reasons.length)
       reasons.push('Both bid and ask cleared the Kelly sizing gate and the regime-selected signal gate.')
@@ -138,9 +138,9 @@ function PipelineTrace({ signals, decision, sourceModel }) {
   const layers = [
     {
       id: 'L1', label: 'KALMAN',
-      question: 'fair value + velocity',
-      primary: `μ $${fmt(kalman.fair_value)}`,
-      secondary: `v ${velStr}`,
+      question: 'price trending up or down?',
+      primary: `v ${velStr}`,
+      secondary: 'velocity only · FV selected upstream',
     },
     {
       id: 'L2', label: 'Z-SCORE',

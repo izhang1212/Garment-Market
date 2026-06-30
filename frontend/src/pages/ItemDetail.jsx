@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ComposedChart, Line, Area,
   XAxis, YAxis,
@@ -196,17 +196,18 @@ function FillProbChart({ fv, vol, bid, ask }) {
 
 // ── EV walkthrough ─────────────────────────────────────────────────────────────
 
-function EVWalkthrough({ model: ev }) {
+function EVWalkthrough({ model: ev, inventory }) {
   const {
     fair_value: fv, volatility: vol, reservation_price: r,
-    bid, ask, spread_multiplier: mult,
+    bid, ask,
     bid_fill_probability: pBid, ask_fill_probability: pAsk,
     bid_ev: evBid, ask_ev: evAsk,
-    candidates = [],
   } = ev
 
-  const ALPHA = 1.5
-  const Q = 0
+  const ALPHA       = ev.inventory_alpha   ?? 0.01   // fraction of FV
+  const penaltyUnit = ev.inventory_penalty ?? (ALPHA * fv)  // $/unit
+  const Q           = inventory ?? 0
+  const alphaPct    = (ALPHA * 100).toFixed(0)
 
   return (
     <div>
@@ -214,12 +215,14 @@ function EVWalkthrough({ model: ev }) {
         <Code
           label="INVENTORY-ADJUSTED CENTER"
           lines={[
-            'r = μ − α · q',
-            { text: `r = ${f(fv)} − ${ALPHA} · ${Q} = ${f(r)}`, green: true },
+            'r = μ − (α · μ) · q',
+            `penalty/unit = α · μ = ${alphaPct}% · ${f(fv)} = ${f(penaltyUnit)}`,
+            { text: `r = ${f(fv)} − ${f(penaltyUnit)} · ${Q} = ${f(r)}`, green: true },
           ]}
         />
         <p style={{ fontSize: '0.85rem', color: 'var(--muted-foreground)', lineHeight: 1.65 }}>
-          α = inventory penalty ({ALPHA}), q = {Q} units.{' '}
+          α = {alphaPct}% of fair value per unit held — scales with item price so a
+          ${f(fv)} item costs ${f(penaltyUnit)} per unit of inventory.{' '}
           {Q === 0 ? 'No inventory — r equals μ exactly.' : 'Positive inventory pushes r below μ, biasing us to sell.'}
         </p>
       </Step>
@@ -235,59 +238,92 @@ function EVWalkthrough({ model: ev }) {
         </p>
       </Step>
 
-      <Step n={3} title="sweep spread multipliers · score ev">
+      <Step n={3} title="independent bid · ask sweep">
         <Code
-          label="PER-CANDIDATE SCORE"
+          label="ASYMMETRIC OPTIMISATION"
           lines={[
-            'spread = max( min_spread, mult · σ )',
-            'EV_bid = (μ − bid) · P(fill | bid)',
-            'EV_ask = (ask − μ) · P(fill | ask)',
-            { text: 'total EV = EV_bid + EV_ask', green: true },
+            'bid = r − m_bid · σ/2    →    argmax  EV_bid(m_bid)',
+            'ask = r + m_ask · σ/2    →    argmax  EV_ask(m_ask)',
+            { text: 'total EV★ = EV_bid★ + EV_ask★', green: true },
           ]}
         />
-        {candidates.length > 0 && (
-          <div style={{ overflowX: 'auto', marginBottom: '0.75rem' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: "'JetBrains Mono', monospace", fontSize: '0.76rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['MULT', 'SPREAD', 'BID', 'ASK', 'P(BID)', 'P(ASK)', 'EV_BID', 'EV_ASK', 'TOTAL EV'].map(h => (
-                    <th key={h} style={{ padding: '0.45rem 0.7rem', textAlign: 'right', color: 'var(--muted-foreground)', fontWeight: 400, letterSpacing: '0.06em', fontSize: '0.65rem', whiteSpace: 'nowrap' }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.map((c, i) => {
-                  const best = Math.abs((c.spread_multiplier ?? 0) - (mult ?? 0)) < 0.001
-                  const bg = best ? 'color-mix(in oklab, var(--field) 8%, transparent)' : ''
-                  const rows = [
-                    [f(c.spread_multiplier, 1), false],
-                    [`$${f(c.spread)}`, false],
-                    [`$${f(c.bid)}`, false],
-                    [`$${f(c.ask)}`, false],
-                    [f(c.bid_fill_probability, 3), false],
-                    [f(c.ask_fill_probability, 3), false],
-                    [`$${f(c.bid_ev)}`, false],
-                    [`$${f(c.ask_ev)}`, false],
-                    [`$${f(c.total_ev)}`, true],
-                  ]
-                  return (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                      {rows.map(([val, isGreen], ci) => (
-                        <td key={ci} style={{ padding: '0.45rem 0.7rem', textAlign: 'right', background: bg }}>
-                          <span style={{ fontWeight: best ? 700 : 400, color: (best && isGreen) ? 'var(--field)' : 'inherit' }}>
-                            {val}
-                          </span>
-                        </td>
-                      ))}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {(() => {
+          const bidC = ev.bid_candidates ?? []
+          const askC = ev.ask_candidates ?? []
+          const MID  = Math.floor((bidC.length || 5) / 2)
+          if (!bidC.length && !askC.length) return null
+
+          const SEP = '2px solid var(--border)'
+
+          const TH = ({ children, sepLeft, sepRight, right }) => (
+            <th style={{
+              padding: '0.4rem 0.7rem',
+              textAlign: right ? 'right' : 'left',
+              color: 'var(--muted-foreground)', fontWeight: 400,
+              letterSpacing: '0.06em', fontSize: '0.62rem', whiteSpace: 'nowrap',
+              borderLeft:  sepLeft  ? SEP : undefined,
+              borderRight: sepRight ? SEP : undefined,
+            }}>{children}</th>
+          )
+
+          const TD = ({ children, isOpt, green, sepLeft, sepRight, right }) => (
+            <td style={{
+              padding: '0.4rem 0.7rem',
+              textAlign: right ? 'right' : 'left',
+              fontWeight: isOpt ? 700 : 400,
+              color: (isOpt && green) ? 'var(--field)' : 'inherit',
+              borderLeft:  sepLeft  ? SEP : undefined,
+              borderRight: sepRight ? SEP : undefined,
+            }}>{children}</td>
+          )
+
+          return (
+            <div style={{ overflowX: 'auto', marginBottom: '0.75rem' }}>
+              <table style={{
+                width: '100%', borderCollapse: 'collapse',
+                fontFamily: "'JetBrains Mono', monospace", fontSize: '0.74rem',
+              }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                    {/* BID group */}
+                    <TH>M_BID</TH>
+                    <TH right>BID</TH>
+                    <TH right>P(BID)</TH>
+                    <TH right sepRight>EV_BID</TH>
+                    {/* ASK group */}
+                    <TH sepLeft>M_ASK</TH>
+                    <TH right>ASK</TH>
+                    <TH right>P(ASK)</TH>
+                    <TH right sepRight>EV_ASK</TH>
+                    {/* Total */}
+                    <TH sepLeft right>TOTAL EV</TH>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bidC.map((b, i) => {
+                    const a      = askC[i] ?? {}
+                    const isOpt  = i === MID
+                    const bg     = isOpt ? 'color-mix(in oklab, var(--field) 8%, transparent)' : ''
+                    const totalEV = (b.ev_bid ?? 0) + (a.ev_ask ?? 0)
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: bg }}>
+                        <TD isOpt={isOpt}>{f(b.multiplier, 2)}×</TD>
+                        <TD isOpt={isOpt} right>${f(b.bid)}</TD>
+                        <TD isOpt={isOpt} right>{f(b.fill_prob, 3)}</TD>
+                        <TD isOpt={isOpt} right sepRight>${f(b.ev_bid)}</TD>
+                        <TD isOpt={isOpt} sepLeft>{f(a.multiplier, 2)}×</TD>
+                        <TD isOpt={isOpt} right>${f(a.ask)}</TD>
+                        <TD isOpt={isOpt} right>{f(a.fill_prob, 3)}</TD>
+                        <TD isOpt={isOpt} right sepRight>${f(a.ev_ask)}</TD>
+                        <TD isOpt={isOpt} green sepLeft right>${f(totalEV)}</TD>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )
+        })()}
       </Step>
 
       <Step n={4} title="ship the highest-ev quote" last>
@@ -308,7 +344,7 @@ function EVWalkthrough({ model: ev }) {
 
 // ── A-S walkthrough ────────────────────────────────────────────────────────────
 
-function ASWalkthrough({ model: as_ }) {
+function ASWalkthrough({ model: as_, inventory }) {
   const {
     fair_value: fv, volatility: vol,
     risk_aversion: gamma, time_horizon: T, liquidity: kappa,
@@ -319,6 +355,8 @@ function ASWalkthrough({ model: as_ }) {
     risk_term, liq_term,
     n_trades, t_window_days,
   } = as_
+
+  const Q = inventory ?? 0
 
   const halfSpread = f(spread / 2)
 
@@ -342,8 +380,8 @@ function ASWalkthrough({ model: as_ }) {
           label="INVENTORY-AWARE CENTER"
           lines={[
             'r = μ − q · γ · σ² · T',
-            `r = ${f(fv)} − 0 · ${f(gamma, 4)} · ${f(vol)}² · ${f(T, 1)}`,
-            { text: `r = ${f(fv)} − 0 = ${f(r)}`, green: true },
+            `r = ${f(fv)} − ${Q} · ${f(gamma, 4)} · ${f(vol)}² · ${f(T, 1)}`,
+            { text: `r = ${f(fv)} − ${f(Q * gamma * vol * vol * T)} = ${f(r)}`, green: true },
           ]}
         />
         <div style={{
@@ -415,7 +453,7 @@ function ASWalkthrough({ model: as_ }) {
 
 // ── Walk-the-Math section ──────────────────────────────────────────────────────
 
-function WalkMathSection({ data }) {
+function WalkMathSection({ data, inventory }) {
   const [tab, setTab] = useState('ev')
   const ev  = data.ev_model
   const as_ = data.as_model
@@ -496,8 +534,8 @@ function WalkMathSection({ data }) {
         <div style={{ borderTop: '1px dashed var(--border)', marginBottom: '1.75rem' }} />
 
         {/* Steps */}
-        {tab === 'ev' && ev && <EVWalkthrough model={ev} />}
-        {tab === 'as' && as_ && <ASWalkthrough model={as_} />}
+        {tab === 'ev' && ev && <EVWalkthrough model={ev} inventory={inventory} />}
+        {tab === 'as' && as_ && <ASWalkthrough model={as_} inventory={inventory} />}
       </div>
     </div>
   )
@@ -506,24 +544,29 @@ function WalkMathSection({ data }) {
 // ── Main ───────────────────────────────────────────────────────────────────────
 
 export default function ItemDetail() {
-  const { sku }   = useParams()
-  const navigate  = useNavigate()
+  const { sku }          = useParams()
+  const navigate         = useNavigate()
+  const [searchParams]   = useSearchParams()
+  const size             = searchParams.get('size') || 'all'
+  const inventory        = parseInt(searchParams.get('inventory') || '0', 10)
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
+  const [txPage,  setTxPage]  = useState(1)
 
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetch(`/api/items/${encodeURIComponent(sku)}/detail`)
+    const params = new URLSearchParams({ size, inventory: String(inventory) })
+    fetch(`/api/items/${encodeURIComponent(sku)}/detail?${params}`)
       .then(r => {
         if (!r.ok) return r.json().then(e => { throw new Error(e.detail || 'Failed to load') })
         return r.json()
       })
-      .then(setData)
+      .then(d => { setData(d); setTxPage(1) })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
-  }, [sku])
+  }, [sku, size, inventory])
 
   return (
     <div className="container-gm" style={{ paddingTop: '2rem', paddingBottom: '4rem' }}>
@@ -628,7 +671,7 @@ export default function ItemDetail() {
           )}
 
           {/* Walk the math */}
-          <WalkMathSection data={data} />
+          <WalkMathSection data={data} inventory={inventory} />
 
           {/* Justification */}
           {data.decision && (
@@ -640,28 +683,67 @@ export default function ItemDetail() {
           )}
 
           {/* Transaction feed */}
-          {data.transactions?.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-semibold" style={{ letterSpacing: '-0.01em' }}>Recent Transactions</h2>
-                <span className="eyebrow">
-                  Showing {Math.min(data.transactions.length, 20)} of {data.transactions.length}
-                </span>
-              </div>
-              <div className="feed">
-                {data.transactions.slice(0, 20).map((t, i) => (
-                  <div key={i} className="feed-row">
-                    <span className={t.source === 'stockx' ? 'feed-side-bid' : 'feed-side-ask'}>
-                      {(t.source || 'UNK').toUpperCase().slice(0, 3)}
+          {data.transactions?.length > 0 && (() => {
+            const TX_PER_PAGE = 20
+            const sorted = [...data.transactions].sort(
+              (a, b) => new Date(b.transacted_at) - new Date(a.transacted_at)
+            )
+            const totalPages = Math.ceil(sorted.length / TX_PER_PAGE)
+            const page = Math.min(txPage, totalPages)
+            const slice = sorted.slice((page - 1) * TX_PER_PAGE, page * TX_PER_PAGE)
+
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="font-semibold" style={{ letterSpacing: '-0.01em' }}>Recent Transactions</h2>
+                  <span className="eyebrow">{sorted.length} records</span>
+                </div>
+                <div className="feed">
+                  {slice.map((t, i) => (
+                    <div key={i} className="feed-row">
+                      <span className={t.source === 'stockx' ? 'feed-side-bid' : 'feed-side-ask'}>
+                        {(t.source || 'UNK').toUpperCase().slice(0, 3)}
+                      </span>
+                      <span style={{ color: 'var(--muted-foreground)' }}>{formatDate(t.transacted_at)}</span>
+                      <span style={{ color: 'var(--foreground)', fontWeight: 600 }}>${Number(t.price).toFixed(2)}</span>
+                      <span style={{ color: 'var(--muted-foreground)' }}>—</span>
+                    </div>
+                  ))}
+                </div>
+                {totalPages > 1 && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    marginTop: '0.75rem', padding: '0.6rem 0',
+                    borderTop: '1px solid var(--border)',
+                  }}>
+                    <button
+                      onClick={() => setTxPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="btn btn-ghost"
+                      style={{ padding: '0.4rem 0.9rem', fontSize: '0.72rem' }}
+                    >
+                      ← prev
+                    </button>
+                    <span style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: '0.7rem', letterSpacing: '0.1em',
+                      color: 'var(--muted-foreground)',
+                    }}>
+                      page {page} of {totalPages}
                     </span>
-                    <span style={{ color: 'var(--muted-foreground)' }}>{formatDate(t.transacted_at)}</span>
-                    <span style={{ color: 'var(--foreground)', fontWeight: 600 }}>${Number(t.price).toFixed(2)}</span>
-                    <span style={{ color: 'var(--muted-foreground)' }}>—</span>
+                    <button
+                      onClick={() => setTxPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                      className="btn btn-ghost"
+                      style={{ padding: '0.4rem 0.9rem', fontSize: '0.72rem' }}
+                    >
+                      next →
+                    </button>
                   </div>
-                ))}
+                )}
               </div>
-            </div>
-          )}
+            )
+          })()}
 
         </div>
       )}

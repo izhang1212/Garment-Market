@@ -4,6 +4,20 @@ KicksDB search is a fuzzy text search — for internal/non-standard SKUs it
 frequently returns the wrong product entirely. These helpers validate that a
 returned product actually matches the item we asked for, and detect StockX
 placeholder images so we can fall through to GOAT.
+
+Matching uses two independent checks that must both pass:
+
+  1. Jaccard similarity ≥ 0.60
+     Intersection / union of meaningful tokens.  Rejects products that share
+     a brand/collab prefix but differ in the key product words.
+     Example: "Supreme TNF Nuptse Jacket Yellow" vs "Supreme TNF Nuptse Sweatpants"
+       {supreme,north,face,nuptse} ∩ {supreme,north,face,nuptse,jacket,yellow,sweatpants}
+       = 4/7 = 0.571 → REJECTED
+
+  2. Colorway guard
+     If both names contain color tokens, at least one must be shared.
+     Prevents "Jacket Yellow" from matching "Jacket Black" even when
+     the Jaccard score would otherwise pass.
 """
 
 import re
@@ -13,21 +27,29 @@ _STOP = frozenset({
     'de', 'le', 'la', 'les',
 })
 
+# Common colorway tokens.  Includes some sneaker-specific names (onyx, zebra,
+# bred, chicago, …) that are meaningfully discriminating.
+_COLORS = frozenset({
+    'yellow', 'black', 'white', 'red', 'blue', 'grey', 'gray',
+    'green', 'purple', 'orange', 'pink', 'brown', 'cream', 'tan',
+    'navy', 'beige', 'silver', 'gold', 'olive', 'maroon', 'coral',
+    'teal', 'indigo', 'khaki', 'onyx', 'zebra', 'natural', 'bred',
+    'chicago', 'shadow', 'infrared', 'volt', 'sail', 'bone', 'stone',
+    'mocha', 'wheat', 'rust', 'pine', 'jade', 'coral', 'crimson',
+})
+
 _SX_PLACEHOLDER = 'Product-Placeholder-Default'
 
 # Minimum Jaccard similarity to accept a search result as the correct item.
-# Jaccard = |intersection| / |union|, which penalises results that share a
-# common model-family prefix but differ in the distinguishing words.
-#
-# Example: "Supreme TNF Nuptse Jacket Yellow" vs "Supreme TNF Leaves Nuptse Sweatpants Black"
-#   intersection={supreme,north,face,nuptse}=4, union=9 → Jaccard=0.44 → REJECTED
-# vs "adidas Yeezy Boost 350 V2 Onyx" vs "adidas Yeezy Boost 350 V2 Onyx"
-#   intersection=union=6 → Jaccard=1.0 → ACCEPTED
-MATCH_THRESHOLD = 0.45
+MATCH_THRESHOLD = 0.60
 
 
 def _tokens(name: str) -> frozenset[str]:
     return frozenset(re.sub(r'[^a-z0-9]', ' ', name.lower()).split()) - _STOP
+
+
+def _color_tokens(name: str) -> frozenset[str]:
+    return _tokens(name) & _COLORS
 
 
 def names_overlap(a: str, b: str) -> float:
@@ -39,9 +61,21 @@ def names_overlap(a: str, b: str) -> float:
 
 
 def is_match(item_name: str, result: dict) -> bool:
-    """Return True if a KicksDB result is likely the correct product."""
+    """Return True if a KicksDB result is likely the correct product.
+
+    Both conditions must hold:
+      1. Jaccard similarity ≥ MATCH_THRESHOLD
+      2. Colorway guard: if both names name a color, they must share one
+    """
     result_name = result.get('title') or result.get('name') or ''
-    return names_overlap(item_name, result_name) >= MATCH_THRESHOLD
+    if names_overlap(item_name, result_name) < MATCH_THRESHOLD:
+        return False
+    # Colorway guard — only fires when BOTH sides have explicit color tokens
+    ec = _color_tokens(item_name)
+    rc = _color_tokens(result_name)
+    if ec and rc and not (ec & rc):
+        return False
+    return True
 
 
 def is_placeholder(url: str | None) -> bool:

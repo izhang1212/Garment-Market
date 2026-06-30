@@ -24,12 +24,12 @@ Momentum is NOT computed here. It comes directly from Kalman velocity
 """
 
 
-def compute_z_score(transactions, kalman_fv: float, volatility: float) -> dict:
+def compute_z_score(transactions, fair_value: float, volatility: float) -> dict:
     if not transactions or volatility <= 0:
-        return {"value": 0.0, "label": "neutral", "latest_price": round(kalman_fv, 2)}
+        return {"value": 0.0, "label": "neutral", "latest_price": round(fair_value, 2)}
 
     latest = max(transactions, key=lambda t: t.transacted_at)
-    z      = (latest.price - kalman_fv) / volatility
+    z      = (latest.price - fair_value) / volatility
 
     if z > 1.5:
         label = "expensive"
