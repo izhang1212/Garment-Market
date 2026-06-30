@@ -17,7 +17,13 @@ from app.strategies import (
     find_best_as_quote,
     compute_as_liquidity,
 )
-from app.decision import trading_decision
+from app.decision import (
+    trading_decision,
+    kalman_estimate,
+    compute_z_score,
+    ou_half_life,
+    compute_sizing,
+)
 from app.config import settings
 from api.middleware.rate_limit import RateLimiter, client_ip
 
@@ -68,78 +74,92 @@ def _round_floats(d: dict) -> dict:
 
 
 def _run_models(transactions):
-    fv = compute_fair_value(transactions)
-    vol = compute_volatility(transactions)
+    # ── Spread models (unchanged) ─────────────────────────────────────────────
+    fv        = compute_fair_value(transactions)
+    vol       = compute_volatility(transactions)
     liquidity = compute_as_liquidity(transactions)
 
-    # a = max(1.0, sqrt(κ)): floor at 1.0 so P(fill) always decays fast enough
-    # that extreme quotes never look attractive. Above κ=1, higher liquidity
-    # tightens the optimal spread (m* = 2/a shrinks as a grows).
     aggressiveness = max(1.0, sqrt(max(liquidity, 0.0)))
 
     ev_quote, ev_candidates = find_best_quote(
-        fair_value=fv,
-        volatility=vol,
-        inventory=0,
+        fair_value=fv, volatility=vol, inventory=0,
         aggressiveness=aggressiveness,
     )
     as_quote, _ = find_best_as_quote(
-        fair_value=fv,
-        volatility=vol,
-        inventory=0,
+        fair_value=fv, volatility=vol, inventory=0,
         risk_aversion_values=[0.001, 0.005, 0.01, 0.02, 0.05],
         liquidity_values=[liquidity],
         time_horizon_values=[0.5, 1.0, 2.0],
         min_spread=0.0,
     )
-    # Pick model with higher total EV; use it to drive the decision
+
     if ev_quote["total_ev"] >= as_quote["total_ev"]:
         winner_quote, winner_name = ev_quote, "ev_model"
     else:
         winner_quote, winner_name = as_quote, "avellaneda_stoikov"
 
+    # ── Decision pipeline ─────────────────────────────────────────────────────
+    # Layer 1: Kalman filter → filtered FV + velocity (replaces linear regression)
+    kalman  = kalman_estimate(transactions)
+
+    # Layer 2: Z-score of latest price vs Kalman FV (in units of weighted vol)
+    z_score = compute_z_score(transactions, kalman["fair_value"], vol)
+
+    # Layer 3: OU half-life → regime (arbitrates Z-score vs velocity)
+    regime  = ou_half_life(transactions)
+
+    # Layer 4: Kelly fraction per side (replaces binary EV/fill gate)
+    sizing  = compute_sizing(
+        fair_value    = kalman["fair_value"],
+        bid           = winner_quote["bid"],
+        ask           = winner_quote["ask"],
+        bid_fill_prob = winner_quote["bid_fill_probability"],
+        ask_fill_prob = winner_quote["ask_fill_probability"],
+    )
+
+    # Layer 5: Final decision
     decision = trading_decision(
         fair_value=fv, volatility=vol, inventory=0,
         quote_result=winner_quote,
-        min_fill_prob=0.05,   # realistic threshold for resale market
+        kalman=kalman, z_score=z_score, regime=regime, sizing=sizing,
     )
 
-    now = datetime.utcnow()
-    oldest = min(t.transacted_at for t in transactions)
+    # ── A-S display metadata ──────────────────────────────────────────────────
+    now           = datetime.utcnow()
+    oldest        = min(t.transacted_at for t in transactions)
     t_window_days = max((now - oldest).total_seconds() / 86400.0, 1.0)
-    n_trades = len(transactions)
-
-    gamma = as_quote["risk_aversion"]
-    T = as_quote["time_horizon"]
-    kappa = as_quote["liquidity"]
-    risk_term = gamma * (vol ** 2) * T
-    liq_term = (2.0 / gamma) * log(1.0 + gamma / kappa)
+    n_trades      = len(transactions)
+    gamma         = as_quote["risk_aversion"]
+    T             = as_quote["time_horizon"]
+    kappa         = as_quote["liquidity"]
+    risk_term     = gamma * (vol ** 2) * T
+    liq_term      = (2.0 / gamma) * log(1.0 + gamma / kappa)
 
     return {
         "fair_value": round(fv, 2),
         "ev_model": _round_floats({
             **ev_quote,
-            "fair_value": fv,
-            "volatility": vol,
+            "fair_value":    fv,
+            "volatility":    vol,
             "aggressiveness": aggressiveness,
-            "candidates": [_round_floats(c) for c in ev_candidates],
+            "candidates":    [_round_floats(c) for c in ev_candidates],
         }),
         "as_model": _round_floats({
             **as_quote,
-            "fair_value": fv,
-            "volatility": vol,
+            "fair_value":    fv,
+            "volatility":    vol,
             "liquidity_rate": liquidity,
-            "n_trades": n_trades,
+            "n_trades":      n_trades,
             "t_window_days": round(t_window_days, 1),
-            "risk_term": risk_term,
-            "liq_term": liq_term,
+            "risk_term":     risk_term,
+            "liq_term":      liq_term,
         }),
         "decision": {
             **decision,
             "recommended_bid": round(decision["recommended_bid"], 2),
             "recommended_ask": round(decision["recommended_ask"], 2),
-            "metrics": _round_floats(decision["metrics"]),
-            "source_model": winner_name,
+            "metrics":         _round_floats(decision["metrics"]),
+            "source_model":    winner_name,
         },
     }
 

@@ -3,131 +3,102 @@ const MODEL_META = {
   avellaneda_stoikov: { num: '02', method: 'derive',   name: 'avellaneda–stoikov' },
 }
 
-const MONO = "'JetBrains Mono', monospace"
+const MONO  = "'JetBrains Mono', monospace"
+const GREEN = 'var(--field)'
+const RED   = 'oklch(0.55 0.18 24)'
+const MUTED = 'var(--muted-foreground)'
 
 const fmt = n => (typeof n === 'number' ? n.toFixed(2) : '—')
+const pct = f => (typeof f === 'number' ? `${(f * 100).toFixed(1)}%` : '—')
 
-function getVerdict(action, evActionable, asActionable) {
-  if (action === 'hold' || (!evActionable && !asActionable)) {
-    return {
-      verb: 'hold.',
-      noun: '',
-      desc: 'Neither model produced a quote with sufficient expected edge on either side. Sit on your hands.',
-    }
-  }
+// ── Section header (label left, subtitle right) ───────────────────────────────
 
-  const sideVerb = action === 'buy_only' ? 'buy' : action === 'sell_only' ? 'sell' : 'buy/sell'
-  const sideDesc = action === 'buy_only'
-    ? 'The bid side clears the threshold. Ask-side edge is insufficient — stand pat on the ask.'
-    : action === 'sell_only'
-    ? 'The ask side clears the threshold. Bid-side edge is insufficient — stand pat on the bid.'
-    : 'Both sides clear the fill threshold.'
-
-  if (evActionable && asActionable) {
-    return {
-      verb: sideVerb,
-      noun: 'using both.',
-      desc: `${sideDesc} Both models agree — either quote is actionable.`,
-    }
-  } else if (evActionable) {
-    return {
-      verb: sideVerb,
-      noun: 'using ev quote.',
-      desc: `${sideDesc} The EV model clears the threshold; A–S does not. Ship the EV quote.`,
-    }
-  } else {
-    return {
-      verb: sideVerb,
-      noun: 'using a–s quote.',
-      desc: `${sideDesc} The A–S model clears the threshold; EV does not. Ship the A–S quote.`,
-    }
-  }
+function SectionHeader({ label, sub }) {
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      marginBottom: '0.75rem',
+    }}>
+      <span style={{ fontFamily: MONO, fontSize: '0.63rem', letterSpacing: '0.1em', color: MUTED }}>{label}</span>
+      {sub && <span style={{ fontFamily: MONO, fontSize: '0.63rem', color: MUTED }}>{sub}</span>}
+    </div>
+  )
 }
 
-function ModelQuoteCard({ modelKey, model, selectedKey }) {
-  const meta       = MODEL_META[modelKey] ?? MODEL_META.avellaneda_stoikov
-  const isSelected = modelKey === selectedKey
+// ── Verdict section ───────────────────────────────────────────────────────────
+
+function VerdictSection({ action, signals, bidGate, askGate, decision }) {
+  const regime    = signals?.regime  ?? {}
+  const kalman    = signals?.kalman  ?? {}
+  const z         = signals?.z_score ?? {}
+  const isMeanRev = ['mean_reverting', 'slow_reverting'].includes(regime.label)
+  const velPct    = kalman.velocity_pct_per_day ?? 0
+
+  const verbMap = { quote_both_sides: 'quote', buy_only: 'buy', sell_only: 'sell', hold: 'hold' }
+  const nounMap = { quote_both_sides: 'both sides.', buy_only: 'bid only.', sell_only: 'ask only.', hold: '.' }
+  const verb = verbMap[action] ?? 'hold'
+  const noun = nounMap[action] ?? '.'
+
+  const reasons = []
+  if (action === 'hold') {
+    if (!bidGate?.kelly_passes || !askGate?.kelly_passes)
+      reasons.push('Kelly fraction below minimum threshold on one or both sides.')
+    if (!bidGate?.primary_passes || !askGate?.primary_passes)
+      reasons.push(isMeanRev
+        ? `Z-score ${z.value >= 0 ? '+' : ''}${(z.value ?? 0).toFixed(2)}σ blocks both sides (${z.label}).`
+        : `Velocity ${velPct >= 0 ? '+' : ''}${velPct.toFixed(2)}%/day blocks both sides.`)
+  } else {
+    if (!bidGate?.kelly_passes)
+      reasons.push('Bid suppressed: Kelly fraction below minimum.')
+    else if (!bidGate?.primary_passes)
+      reasons.push(isMeanRev
+        ? `Bid suppressed: market expensive at ${(z.value ?? 0).toFixed(2)}σ above Kalman FV.`
+        : `Bid suppressed: price declining at ${Math.abs(velPct).toFixed(2)}%/day.`)
+    if (!askGate?.kelly_passes)
+      reasons.push('Ask suppressed: Kelly fraction below minimum.')
+    else if (!askGate?.primary_passes)
+      reasons.push(isMeanRev
+        ? `Ask suppressed: market cheap at ${Math.abs(z.value ?? 0).toFixed(2)}σ below Kalman FV.`
+        : `Ask suppressed: price rising at ${Math.abs(velPct).toFixed(2)}%/day.`)
+    if (!reasons.length)
+      reasons.push('Both bid and ask cleared the Kelly sizing gate and the regime-selected signal gate.')
+  }
 
   return (
     <div style={{
-      border: `2px solid ${isSelected ? 'var(--field)' : 'var(--border)'}`,
-      borderRadius: 'var(--radius)',
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
+      display: 'grid', gridTemplateColumns: '1fr auto',
+      gap: '1.5rem', alignItems: 'center',
+      background: 'var(--card)', border: '1px solid var(--border)',
+      borderRadius: 'var(--radius)', padding: '1.5rem',
+      marginBottom: '1rem',
     }}>
-      {/* Body */}
-      <div style={{ padding: '1rem 1.25rem 1.25rem', flex: 1 }}>
-        {/* Top row */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-          <span style={{ fontFamily: MONO, fontSize: '0.72rem', color: 'var(--muted-foreground)' }}>
-            {meta.num} · {meta.method}
-          </span>
-          <span style={{
-            fontFamily: MONO,
-            fontSize: '0.63rem',
-            fontWeight: 700,
-            letterSpacing: '0.1em',
-            padding: '0.28rem 0.7rem',
-            borderRadius: '999px',
-            background: isSelected ? 'var(--field)' : 'transparent',
-            border: `1px solid ${isSelected ? 'transparent' : 'var(--border)'}`,
-            color: isSelected ? '#fff' : 'var(--muted-foreground)',
-          }}>
-            {isSelected ? 'SELECTED' : 'RUNNER-UP'}
-          </span>
-        </div>
-
-        {/* Model name */}
-        <h4 style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-0.02em', marginBottom: '0.875rem' }}>
-          {meta.name}
-        </h4>
-
-        {/* Bid / Ask mini cells */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-          {[
-            { label: 'BID', value: model?.bid, p: model?.bid_fill_probability, ev: model?.bid_ev, green: true  },
-            { label: 'ASK', value: model?.ask, p: model?.ask_fill_probability, ev: model?.ask_ev, green: false },
-          ].map(({ label, value, p, ev, green }) => (
-            <div key={label} style={{
-              background: 'color-mix(in oklab, var(--card) 60%, var(--border))',
-              border: '1px solid var(--border)',
-              borderRadius: 'calc(var(--radius) - 2px)',
-              padding: '0.625rem 0.75rem',
-            }}>
-              <span style={{ fontFamily: MONO, fontSize: '0.63rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted-foreground)', display: 'block', marginBottom: '0.25rem' }}>
-                {label}
-              </span>
-              <span style={{ fontWeight: 700, fontSize: '1.35rem', letterSpacing: '-0.03em', color: green ? 'var(--field)' : 'var(--foreground)', display: 'block', marginBottom: '0.2rem' }}>
-                ${fmt(value)}
-              </span>
-              <span style={{ fontFamily: MONO, fontSize: '0.68rem', color: 'var(--muted-foreground)' }}>
-                p {fmt(p)} · ev +${fmt(ev)}
-              </span>
-            </div>
-          ))}
-        </div>
+      {/* Left: verdict text */}
+      <div>
+        <p className="eyebrow mb-3">VERDICT</p>
+        <p style={{ fontWeight: 700, fontSize: 'clamp(1.6rem, 3vw, 2.1rem)', letterSpacing: '-0.03em', lineHeight: 1.1, marginBottom: '0.6rem' }}>
+          {verb} <span style={{ color: GREEN }}>{noun}</span>
+        </p>
+        <p style={{ color: MUTED, fontSize: '0.875rem', lineHeight: 1.65 }}>
+          {reasons.join('  ')}
+        </p>
       </div>
 
-      {/* Footer: spread + total ev — light background */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        background: 'var(--card)',
-        borderTop: '1px solid var(--border)',
-        padding: '0.875rem 1.25rem',
-        gap: '0.5rem',
-      }}>
+      {/* Right: bid / ask price boxes */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', minWidth: '240px' }}>
         {[
-          { label: 'SPREAD',   value: `$${fmt(model?.spread)}`,   green: false },
-          { label: 'TOTAL EV', value: `$${fmt(model?.total_ev)}`, green: true  },
-        ].map(({ label, value, green }) => (
-          <div key={label}>
-            <div style={{ fontFamily: MONO, fontSize: '0.63rem', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--muted-foreground)', marginBottom: '0.3rem' }}>
-              {label}
-            </div>
-            <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: '1.1rem', color: green ? 'var(--field)' : 'var(--foreground)' }}>
-              {value}
+          { label: 'BID', value: decision?.recommended_bid, active: bidGate?.actionable },
+          { label: 'ASK', value: decision?.recommended_ask, active: askGate?.actionable },
+        ].map(({ label, value, active }) => (
+          <div key={label} style={{
+            background: 'var(--background)',
+            border: `1px solid ${active ? GREEN : RED}`,
+            borderRadius: 'calc(var(--radius) - 2px)',
+            padding: '1rem 1.25rem',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontFamily: MONO, fontSize: '0.6rem', letterSpacing: '0.1em', color: MUTED, marginBottom: '0.4rem' }}>{label}</div>
+            <div style={{ fontWeight: 700, fontSize: '1.45rem', letterSpacing: '-0.03em', color: active ? GREEN : RED }}>
+              ${fmt(value)}
             </div>
           </div>
         ))}
@@ -136,146 +107,297 @@ function ModelQuoteCard({ modelKey, model, selectedKey }) {
   )
 }
 
-export default function DecisionPanel({ decision, ev, asModel }) {
-  const action       = decision?.action ?? 'hold'
-  const sourceModel  = decision?.source_model ?? 'avellaneda_stoikov'
-  const evActionable = (ev?.total_ev ?? 0) > 0
-  const asActionable = (asModel?.total_ev ?? 0) > 0
-  const verdict      = getVerdict(action, evActionable, asActionable)
+// ── Pipeline trace strip (L1–L5) ─────────────────────────────────────────────
 
-  const MIN_FILL = 0.05
-  const actionRows = [
-    { label: '01 · EV · BID',    price: ev?.bid,      evVal: ev?.bid_ev,      ok: (ev?.bid_fill_probability ?? 0) >= MIN_FILL && (ev?.bid_ev ?? 0) > 0 },
-    { label: '01 · EV · ASK',    price: ev?.ask,      evVal: ev?.ask_ev,      ok: (ev?.ask_fill_probability ?? 0) >= MIN_FILL && (ev?.ask_ev ?? 0) > 0 },
-    { label: '02 · A–S · BID',   price: asModel?.bid, evVal: asModel?.bid_ev, ok: (asModel?.bid_fill_probability ?? 0) >= MIN_FILL && (asModel?.bid_ev ?? 0) > 0 },
-    { label: '02 · A–S · ASK',   price: asModel?.ask, evVal: asModel?.ask_ev, ok: (asModel?.ask_fill_probability ?? 0) >= MIN_FILL && (asModel?.ask_ev ?? 0) > 0 },
+function PipelineTrace({ signals, decision, sourceModel }) {
+  const kalman  = signals?.kalman  ?? {}
+  const z       = signals?.z_score ?? {}
+  const regime  = signals?.regime  ?? {}
+  const bidGate = decision?.bid_gate ?? {}
+  const askGate = decision?.ask_gate ?? {}
+
+  const velPct = kalman.velocity_pct_per_day
+  const velStr = typeof velPct === 'number'
+    ? `${velPct >= 0 ? '+' : ''}${velPct.toFixed(2)}%/day`
+    : '—'
+  const zStr = typeof z.value === 'number'
+    ? `${z.value >= 0 ? '+' : ''}${z.value.toFixed(2)}σ`
+    : '—'
+  const hlStr = regime.half_life_days != null
+    ? `t½ ${Number(regime.half_life_days).toFixed(1)}d`
+    : 't½ none'
+  const regimeGate = regime.primary_signal === 'z_score' ? '→ z-score gate' : '→ velocity gate'
+  const actionLabel = {
+    quote_both_sides: 'quote both',
+    buy_only:         'buy only',
+    sell_only:        'sell only',
+    hold:             'hold',
+  }[decision?.action ?? 'hold'] ?? 'hold'
+  const modelLabel = sourceModel === 'ev_model' ? 'using ev quote' : 'using a-s quote'
+
+  const layers = [
+    {
+      id: 'L1', label: 'KALMAN',
+      question: 'fair value + velocity',
+      primary: `μ $${fmt(kalman.fair_value)}`,
+      secondary: `v ${velStr}`,
+    },
+    {
+      id: 'L2', label: 'Z-SCORE',
+      question: 'last print rich or cheap?',
+      primary: zStr,
+      secondary: z.label ?? '—',
+    },
+    {
+      id: 'L3', label: 'OU REGIME',
+      question: 'reverting or trending?',
+      primary: (regime.label ?? '—').replace('_', '-'),
+      secondary: `${hlStr} ${regimeGate}`,
+    },
+    {
+      id: 'L4', label: 'KELLY',
+      question: 'edge vs opportunity cost',
+      primary: `bid ${pct(bidGate.kelly_fraction)} · ask ${pct(askGate.kelly_fraction)}`,
+      secondary: 'min 1% to quote',
+    },
+    {
+      id: 'L5', label: 'DECISION',
+      question: 'ship, half, or hold',
+      primary: actionLabel,
+      secondary: modelLabel,
+    },
   ]
 
   return (
-    <div>
-      {/* Title — matches "walk the math." header style */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+    <div style={{ marginBottom: '1.5rem' }}>
+      <SectionHeader label="PIPELINE TRACE" />
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)',
+        border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden',
+      }}>
+        {layers.map(({ id, label, question, primary, secondary }, i) => (
+          <div key={id} style={{
+            padding: '1rem 1.125rem',
+            borderRight: i < layers.length - 1 ? '1px solid var(--border)' : 'none',
+          }}>
+            <div style={{ fontFamily: MONO, fontSize: '0.6rem', letterSpacing: '0.08em', color: GREEN, marginBottom: '0.2rem' }}>
+              {id} · {label}
+            </div>
+            <div style={{ fontFamily: MONO, fontSize: '0.63rem', color: MUTED, marginBottom: '0.75rem' }}>
+              {question}
+            </div>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', letterSpacing: '-0.02em', marginBottom: '0.2rem' }}>
+              {primary}
+            </div>
+            <div style={{ fontFamily: MONO, fontSize: '0.63rem', color: MUTED }}>
+              {secondary}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Model comparison cards ────────────────────────────────────────────────────
+
+function ModelQuoteCard({ modelKey, model, selectedKey }) {
+  const meta       = MODEL_META[modelKey] ?? MODEL_META.avellaneda_stoikov
+  const isSelected = modelKey === selectedKey
+
+  return (
+    <div style={{
+      border: `2px solid ${isSelected ? GREEN : 'var(--border)'}`,
+      borderRadius: 'var(--radius)', overflow: 'hidden',
+    }}>
+      {/* Card header */}
+      <div style={{ padding: '0.875rem 1.125rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <p className="eyebrow mb-2">DECISION ENGINE · min fill threshold · 5% per side</p>
-          <h2 className="display-lg">decision.</h2>
+          <span style={{ fontFamily: MONO, fontSize: '0.63rem', color: MUTED }}>{meta.num} · {meta.method}</span>
+          <div style={{ fontWeight: 700, fontSize: '0.95rem', letterSpacing: '-0.02em', marginTop: '0.2rem' }}>{meta.name}</div>
+        </div>
+        <span style={{
+          fontFamily: MONO, fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.1em',
+          padding: '0.25rem 0.65rem', borderRadius: '999px',
+          background: isSelected ? GREEN : 'transparent',
+          border: `1px solid ${isSelected ? 'transparent' : 'var(--border)'}`,
+          color: isSelected ? '#fff' : MUTED,
+        }}>
+          {isSelected ? 'SELECTED' : 'RUNNER-UP'}
+        </span>
+      </div>
+
+      {/* BID / ASK / TOTAL EV — 3 columns */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '0.875rem 1.125rem', gap: '0.5rem' }}>
+        {[
+          { label: 'BID',      value: `$${fmt(model?.bid)}`,      sub: `p ${fmt(model?.bid_fill_probability)} · ev +$${fmt(model?.bid_ev)}` },
+          { label: 'ASK',      value: `$${fmt(model?.ask)}`,      sub: `p ${fmt(model?.ask_fill_probability)} · ev +$${fmt(model?.ask_ev)}` },
+          { label: 'TOTAL EV', value: `$${fmt(model?.total_ev)}`, sub: `spread $${fmt(model?.spread)}`, green: true },
+        ].map(({ label, value, sub, green }) => (
+          <div key={label}>
+            <div style={{ fontFamily: MONO, fontSize: '0.6rem', letterSpacing: '0.1em', color: MUTED, marginBottom: '0.3rem' }}>{label}</div>
+            <div style={{ fontWeight: 700, fontSize: '1.15rem', letterSpacing: '-0.02em', color: green ? GREEN : 'var(--foreground)', marginBottom: '0.2rem' }}>{value}</div>
+            <div style={{ fontFamily: MONO, fontSize: '0.6rem', color: MUTED }}>{sub}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Per-side gate trace ───────────────────────────────────────────────────────
+
+function GateTable({ decision }) {
+  const signals   = decision?.signals ?? {}
+  const bidGate   = decision?.bid_gate ?? {}
+  const askGate   = decision?.ask_gate ?? {}
+  const regime    = signals.regime ?? {}
+  const z         = signals.z_score ?? {}
+  const kalman    = signals.kalman  ?? {}
+  const isMeanRev = ['mean_reverting', 'slow_reverting'].includes(regime.label)
+
+  const zStr = typeof z.value === 'number'
+    ? `z ${z.value >= 0 ? '+' : ''}${z.value.toFixed(2)}σ · ${z.label}`
+    : '—'
+  const velPct = kalman.velocity_pct_per_day
+  const velStr = typeof velPct === 'number'
+    ? `${velPct >= 0 ? '+' : ''}${velPct.toFixed(2)}%/day`
+    : '—'
+
+  const COL  = { gridTemplateColumns: '1fr 1fr 1fr' }
+  const HDR  = { fontFamily: MONO, fontSize: '0.6rem', letterSpacing: '0.1em', color: MUTED }
+  const CELL = { fontFamily: MONO, fontSize: '0.68rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.3rem', padding: '0.75rem 0.5rem' }
+
+  const regimeSub = `regime = ${(regime.label ?? '—').replace('_', '-')} → primary gate = ${regime.primary_signal ?? '—'}`
+
+  return (
+    <div>
+      <SectionHeader label="PER-SIDE GATE TRACE" sub={regimeSub} />
+      <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+        {/* Header row */}
+        <div style={{
+          display: 'grid', ...COL,
+          background: 'color-mix(in oklab, var(--card) 40%, var(--border))',
+          borderBottom: '1px solid var(--border)',
+          padding: '0.5rem 1rem',
+        }}>
+          <span style={{ ...HDR }}>GATE</span>
+          <span style={{ ...HDR, textAlign: 'center' }}>BID · BUY</span>
+          <span style={{ ...HDR, textAlign: 'center' }}>ASK · SELL</span>
+        </div>
+
+        {/* Kelly row */}
+        <div style={{ display: 'grid', ...COL, alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ padding: '0.75rem 1rem' }}>
+            <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.15rem' }}>kelly fraction</div>
+            <div style={{ fontFamily: MONO, fontSize: '0.6rem', color: MUTED }}>edge ≥ 1% of capital</div>
+          </div>
+          {[bidGate, askGate].map((gate, i) => (
+            <div key={i} style={{ ...CELL, color: gate.kelly_passes ? GREEN : RED }}>
+              <span>{gate.kelly_passes ? '✓' : '✗'}</span>
+              <span>{pct(gate.kelly_fraction)} capital</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Primary signal row */}
+        <div style={{ display: 'grid', ...COL, alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ padding: '0.75rem 1rem' }}>
+            <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.15rem' }}>
+              {isMeanRev ? 'z-score gate' : 'velocity gate'}
+            </div>
+            <div style={{ fontFamily: MONO, fontSize: '0.6rem', color: MUTED }}>
+              {isMeanRev ? 'block bid if expensive · block ask if cheap' : 'block bid if falling · block ask if rising'}
+            </div>
+          </div>
+          {[bidGate, askGate].map((gate, i) => (
+            <div key={i} style={{ ...CELL, color: gate.primary_passes ? GREEN : RED }}>
+              <span>{gate.primary_passes ? '✓' : '✗'}</span>
+              <span>{isMeanRev ? zStr : velStr}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Result row */}
+        <div style={{ display: 'grid', ...COL, alignItems: 'center' }}>
+          <div style={{ padding: '0.75rem 1rem' }}>
+            <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.15rem' }}>result</div>
+            <div style={{ fontFamily: MONO, fontSize: '0.6rem', color: MUTED }}>both gates must pass</div>
+          </div>
+          {[
+            { gate: bidGate, label: 'QUOTE BID' },
+            { gate: askGate, label: 'QUOTE ASK' },
+          ].map(({ gate, label }, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'center', padding: '0.75rem 0.5rem' }}>
+              <span style={{
+                fontFamily: MONO, fontSize: '0.65rem', fontWeight: 700,
+                color: gate.actionable ? GREEN : RED,
+                background: gate.actionable
+                  ? 'color-mix(in oklab, var(--field) 12%, transparent)'
+                  : 'color-mix(in oklab, oklch(0.55 0.18 24) 10%, transparent)',
+                border: `1px solid ${gate.actionable ? GREEN : RED}`,
+                borderRadius: '0.25rem',
+                padding: '0.2rem 0.55rem',
+              }}>
+                {gate.actionable ? `✓ ${label}` : '✗ BLOCKED'}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
-      <div style={{ height: '2px', background: 'var(--field)', marginBottom: '1.75rem' }} />
+    </div>
+  )
+}
+
+// ── Main export ───────────────────────────────────────────────────────────────
+
+export default function DecisionPanel({ decision, ev, asModel }) {
+  const action      = decision?.action ?? 'hold'
+  const sourceModel = decision?.source_model ?? 'avellaneda_stoikov'
+  const signals     = decision?.signals ?? {}
+  const bidGate     = decision?.bid_gate ?? {}
+  const askGate     = decision?.ask_gate ?? {}
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <p className="eyebrow mb-2">DECISION ENGINE · 5-LAYER PIPELINE</p>
+          <h2 className="display-lg">decision.</h2>
+        </div>
+        <span style={{ fontFamily: MONO, fontSize: '0.72rem', color: MUTED, paddingBottom: '0.25rem' }}>
+          each layer answers one question, then hands off.
+        </span>
+      </div>
+      <div style={{ height: '2px', background: GREEN, marginBottom: '1.75rem' }} />
 
       <div className="surface">
         <div className="surface-pad">
 
-          {/* Description */}
-          <p style={{ color: 'var(--muted-foreground)', fontSize: '0.9rem', lineHeight: 1.65, marginBottom: '1.5rem' }}>
-            Both quotes are re-scored against the same fill-probability decay so they're apples-to-apples.
-            The engine picks the higher total expected edge — unless neither side clears the actionability
-            threshold, in which case it holds.
-          </p>
+          {/* 1 — Verdict */}
+          <VerdictSection
+            action={action} signals={signals}
+            bidGate={bidGate} askGate={askGate}
+            decision={decision}
+          />
 
-          {/* Side-by-side model cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-            <ModelQuoteCard modelKey="ev_model"           model={ev}      selectedKey={sourceModel} />
-            <ModelQuoteCard modelKey="avellaneda_stoikov" model={asModel} selectedKey={sourceModel} />
-          </div>
+          {/* 2 — Pipeline trace */}
+          <PipelineTrace signals={signals} decision={decision} sourceModel={sourceModel} />
 
-          {/* Verdict */}
-          <div style={{
-            background: 'var(--card)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius)',
-            padding: '1.25rem 1.5rem',
-          }}>
-            <p className="eyebrow mb-3">VERDICT</p>
-            <p style={{ fontWeight: 700, fontSize: 'clamp(1.4rem, 3vw, 1.9rem)', letterSpacing: '-0.03em', lineHeight: 1.15, marginBottom: '0.75rem' }}>
-              {verdict.verb}{verdict.noun ? ' ' : ''}
-              {verdict.noun && <span style={{ color: 'var(--field)' }}>{verdict.noun}</span>}
-            </p>
-            <p style={{ color: 'var(--muted-foreground)', fontSize: '0.88rem', lineHeight: 1.65, marginBottom: '1.25rem' }}>
-              {verdict.desc}
-            </p>
-
-            {/* Actionability table — 2 model rows × BID/ASK columns */}
-            <div style={{
-              border: '1px solid var(--border)',
-              borderRadius: 'calc(var(--radius) - 2px)',
-              overflow: 'hidden',
-              marginLeft: '0.25rem',
-              marginRight: '0.25rem',
-            }}>
-              {/* Header */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr 1fr',
-                background: 'color-mix(in oklab, var(--card) 40%, var(--border))',
-                borderBottom: '1px solid var(--border)',
-                padding: '0.45rem 0.875rem',
-              }}>
-                {['ACTIONABILITY', 'BID', 'ASK'].map((h, i) => (
-                  <span key={h} style={{
-                    fontFamily: MONO,
-                    fontSize: '0.63rem',
-                    letterSpacing: '0.1em',
-                    textTransform: 'uppercase',
-                    color: 'var(--muted-foreground)',
-                    textAlign: i === 0 ? 'left' : 'center',
-                  }}>{h}</span>
-                ))}
-              </div>
-
-              {/* Rows */}
-              {[
-                {
-                  label: '01 · EXPECTED VALUE',
-                  bid: { price: ev?.bid, evVal: ev?.bid_ev, ok: (ev?.bid_fill_probability ?? 0) >= MIN_FILL && (ev?.bid_ev ?? 0) > 0 },
-                  ask: { price: ev?.ask, evVal: ev?.ask_ev, ok: (ev?.ask_fill_probability ?? 0) >= MIN_FILL && (ev?.ask_ev ?? 0) > 0 },
-                },
-                {
-                  label: '02 · AVELLANEDA–STOIKOV',
-                  bid: { price: asModel?.bid, evVal: asModel?.bid_ev, ok: (asModel?.bid_fill_probability ?? 0) >= MIN_FILL && (asModel?.bid_ev ?? 0) > 0 },
-                  ask: { price: asModel?.ask, evVal: asModel?.ask_ev, ok: (asModel?.ask_fill_probability ?? 0) >= MIN_FILL && (asModel?.ask_ev ?? 0) > 0 },
-                },
-              ].map(({ label, bid, ask }, i, arr) => (
-                <div key={label} style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr 1fr',
-                  alignItems: 'center',
-                  padding: '0.7rem 0.875rem',
-                  borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
-                  gap: '0.5rem',
-                }}>
-                  {/* Model label */}
-                  <span style={{ fontFamily: MONO, fontSize: '0.72rem', color: 'var(--muted-foreground)' }}>
-                    {label}
-                  </span>
-
-                  {/* BID cell */}
-                  {[bid, ask].map((side, si) => (
-                    <div key={si} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.2rem' }}>
-                      <span style={{ fontFamily: MONO, fontSize: '0.78rem', fontWeight: 600, color: 'var(--foreground)' }}>
-                        ${fmt(side.price)}
-                      </span>
-                      <span style={{ fontFamily: MONO, fontSize: '0.65rem', color: 'var(--muted-foreground)' }}>
-                        ev +${fmt(side.evVal)}
-                      </span>
-                      <span style={{
-                        fontFamily: MONO,
-                        fontSize: '0.65rem',
-                        fontWeight: 700,
-                        color: side.ok ? 'var(--field)' : 'var(--muted-foreground)',
-                        background: side.ok ? 'color-mix(in oklab, var(--field) 12%, transparent)' : 'transparent',
-                        border: `1px solid ${side.ok ? 'var(--field)' : 'var(--border)'}`,
-                        borderRadius: '0.25rem',
-                        padding: '0.15rem 0.45rem',
-                        marginTop: '0.1rem',
-                      }}>
-                        {side.ok ? '✓ actionable' : '✗ below threshold'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ))}
+          {/* 3 — Model comparison */}
+          <div style={{ marginBottom: '1.5rem' }}>
+            <SectionHeader
+              label="MODEL COMPARISON"
+              sub="same fill-prob decay · pick higher total edge"
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <ModelQuoteCard modelKey="ev_model"           model={ev}      selectedKey={sourceModel} />
+              <ModelQuoteCard modelKey="avellaneda_stoikov" model={asModel} selectedKey={sourceModel} />
             </div>
           </div>
+
+          {/* 4 — Per-side gate trace */}
+          <GateTable decision={decision} />
 
         </div>
       </div>
