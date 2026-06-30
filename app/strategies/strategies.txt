@@ -1,264 +1,69 @@
 ================================================================================
-EV MODEL
+SHARED VARIABLES
 ================================================================================
 
-OVERVIEW
---------
-The EV model is a heuristic approach. It does not derive an optimal spread from
-a formula. Instead, it simulates many candidate spreads and picks the one with
-the highest expected value. 
-Because the bid and ask are centered around the
-reservation price (not fair value), and fill probability is measured from fair
-value, the two sides end up at different distances from FV. This means bid_EV
-and ask_EV are naturally different — the model implicitly penalizes taking on
-more inventory in the direction you are already loaded.
+Both the EV model and the Avellaneda-Stoikov model are quoted off the same
+upstream estimates, computed once in app/strategies/shared/ and passed into
+both. Model-specific math (reservation price, spread, optimization) lives in
+each model's own folder — see ev_model/math.txt and avellaneda_stoikov/math.txt.
 
-
-PARAMETERS (inputs we provide)
------------
-- transactions:         historical trade records (price + timestamp)
-- decay_lambda (λ):     how fast old transactions lose relevance
-- spread_multipliers:   list of candidate spread widths to try (e.g. [1.0, 1.5, 2.0])
-- inventory (q):        how many units we currently hold
-- inventory_penalty (α): how aggressively to shift quotes for inventory
-- aggressiveness:       how steeply fill probability falls as quotes move away from FV
-- min_spread:           floor on the spread — never quote tighter than this
-
-
-VARIABLES (derived from parameters)
----------
-Fair Value (FV):
-    FV = (∑ w_i * x_i) / ∑ w_i,  where  w_i = e^(-λ * t_i)
-    Recency-weighted average of transaction prices. Recent trades carry more weight.
+Fair Value (FV) — adaptive, chosen per query:
+    Kalman FV (preferred):
+        A constant-velocity Kalman filter over the full transaction history.
+        State = [price_level, velocity]. Each observation refines both
+        jointly — irregular time gaps are handled by the state transition
+        matrix, and observation noise keeps a single outlier sale from
+        swinging the estimate the way it would a plain average. Used
+        whenever there are >= 5 trades in the trailing 90-day window.
+    Recency-weighted FV (fallback if not enough transactions):
+        FV = (∑ w_i * x_i) / ∑ w_i,  where  w_i = e^(-λ * t_i)
+        Used when recent data is too sparse to trust a velocity estimate.
+        Recent trades carry more weight than old ones.
 
 Volatility (σ):
     σ = sqrt( (∑ w_i * (x_i - FV)²) / ∑ w_i )
-    Recency-weighted standard deviation around FV. Measures price uncertainty.
+    Recency-weighted standard deviation around FV. Measures price
+    uncertainty, and serves as the unit of distance for fill probability
+    in both models.
 
-Reservation Price (r):
-    r = FV - α * q
-    Our internal valuation adjusted for inventory. Excess inventory (q > 0)
-    lowers r, shifting our quotes downward to encourage selling.
-
-
-SIMULATING THE BEST BID/ASK
-----------------------------
-For each candidate spread_multiplier k, we generate a quote pair and score it.
-There is no formula that tells us the right k — we try all of them and pick the best.
-
-    spread   = max(k * σ,  min_spread)
-
-    bid      = r - spread / 2
-    ask      = r + spread / 2
-
-    Note: bid/ask are symmetric around r, but NOT symmetric around FV when q ≠ 0.
-    When long (q > 0), r < FV, so the ask is closer to FV than the bid is.
-
-Fill probability — measured as distance from FV:
-    P(fill_bid)  = exp(-aggressiveness * |bid - FV| / σ)
-    P(fill_ask)  = exp(-aggressiveness * |ask - FV| / σ)
-
-    A quote closer to FV is more likely to execute. Because ask is closer to FV
-    when long, P(fill_ask) > P(fill_bid) — the model is more likely to sell,
-    which is exactly the inventory correction we want.
-
-Expected value per side:
-    bid_EV   = (FV - bid)  * P(fill_bid)    ← profit per fill × chance of filling
-    ask_EV   = (ask - FV)  * P(fill_ask)
-
-    total_EV = bid_EV + ask_EV
-
-The spread_multiplier with the highest total_EV is chosen. The final bid/ask
-are the quotes from that winning candidate.
-
-
-
-
-================================================================================
-AVELLANEDA-STOIKOV MODEL
-================================================================================
-
-OVERVIEW
---------
-The AS model derives the optimal spread analytically from a continuous-time
-stochastic control problem (Hamilton-Jacobi-Bellman equation). Rather than
-simulating candidate spreads, it computes exactly what the bid and ask should
-be given the model's parameters. Liquidity (κ) is estimated directly from
-transaction history. The optimizer sweeps over uncertain parameter values
-(γ, T) and uses the same EV scoring to find the best combination.
-
-
-PARAMETERS (inputs we provide)
------------
-- transactions:             historical trade records (price + timestamp), shared with EV model
-- fair_value (s):           estimated true price (taken from EV model output)
-- volatility (σ):           price uncertainty (taken from EV model output)
-- inventory (q):            how many units we currently hold
-- risk_aversion (γ):        how much we penalize holding inventory risk
-- time_horizon (T):         how long we plan to be in the market
-- aggressiveness:           fill probability decay rate (shared with EV model)
-- min_spread:               floor on the spread
-
-
-VARIABLES (derived from parameters)
----------
 Liquidity (κ):
-    The AS model treats market order arrivals as a Poisson process with rate κ.
-    Rather than hardcoding κ, we estimate it directly from the transaction history
-    using the maximum likelihood estimator (MLE) for a Poisson rate:
+    κ = N / W   (trades per day)
+    MLE estimate of the Poisson order-arrival rate from transaction
+    history: N = trade count, W = observation window in days. A higher κ
+    means a more actively traded item.
 
-        κ = N / W
+Aggressiveness (a):
+    a = max(1.0, sqrt(κ))
+    Derived from liquidity and shared by both models so fill probability
+    behaves consistently regardless of which model wins. Liquid items
+    tolerate tighter spreads; illiquid items floor at a = 1.
 
-    where:
-        N = total number of transactions in the observation window
-        W = width of the observation window in days
-              (from the oldest transaction timestamp to now)
+Fill probability — shared functional form:
+    P(fill | quote) = e^(-a * |quote - FV| / σ)
 
-    This gives κ in units of trades per day. A more liquid item (many recent
-    sales) produces a higher κ, which tightens the spread; an illiquid item
-    (few sparse sales) produces a lower κ, which widens the spread — exactly
-    the behavior the AS model intends.
+Expected value per side — shared functional form:
+    EV_bid = P(fill | bid) * (FV - bid)
+    EV_ask = P(fill | ask) * (ask - FV)
 
-    Example:
-        Nike AF1:   30 sales over 25 days  →  κ ≈ 1.20  (liquid, tighter spread)
-        Nike Air Mag: 15 sales over 120 days →  κ ≈ 0.13  (illiquid, wider spread)
-
-Reservation Price (r):
-    r = s - q * γ * σ² * T
-    Inventory penalty scales with volatility, risk aversion, and time horizon.
-    As T → 0 (end of session), r → s and inventory barely affects the quote.
-
-Optimal Spread (δ):
-    δ = γ * σ² * T  +  (2/γ) * ln(1 + γ/κ)
-
-    Two components:
-      - Risk term    [γ * σ² * T]:         wider when vol / risk aversion / time is high
-      - Liquidity term [(2/γ) * ln(...)]:  wider when κ is low (few arriving orders),
-                                            so each fill needs to be more profitable
-
-
-FORMULAS FOR BID/ASK
---------------------
-    bid  = r - δ / 2
-    ask  = r + δ / 2
-
-Unlike the EV model, the spread width is not searched — it is computed directly
-from the formula above. The quotes are symmetric around the reservation price
-because the model assumes buy and sell orders arrive at equal rates.
-
-EV scoring — used by the optimizer to select the best (γ, T) combination:
-    P(fill_bid)  = exp(-aggressiveness * |bid - FV| / σ)
-    P(fill_ask)  = exp(-aggressiveness * |ask - FV| / σ)
-    bid_EV       = (FV - bid)  * P(fill_bid)
-    ask_EV       = (ask - FV)  * P(fill_ask)
-    total_EV     = bid_EV + ask_EV
-
-The optimizer sweeps all combinations of risk_aversion × time_horizon and
-returns the candidate with the highest total_EV. Liquidity is no longer swept —
-it is fixed at the data-derived κ.
-
-
+Inventory (q): net units currently held (positive = long, negative = short).
+Each model interprets q differently when shaping its reservation price —
+see the model-specific docs.
 
 
 ================================================================================
-DIFFERENCES
+MODEL OVERVIEW
 ================================================================================
 
-HOW THE SPREAD IS DETERMINED
-    EV model:   no formula. Sweeps candidate spread_multipliers, picks best total_EV.
-                The spread width emerges from simulation, not theory.
-    AS model:   closed-form formula. δ = γσ²T + (2/γ)ln(1 + γ/κ).
-                κ is computed from transaction history; γ and T are still swept.
+EV MODEL — simulate
+    Heuristic. No closed-form spread. Searches candidate bid and ask
+    multipliers independently and keeps whichever combination maximizes
+    total expected value. See ev_model/math.txt.
 
-QUOTE SYMMETRY
-    EV model:   quotes are symmetric around r, but asymmetric relative to FV when
-                inventory ≠ 0. The bid and ask have different fill probabilities and
-                EVs — this asymmetry is what drives the inventory correction.
-    AS model:   also symmetric around r, same consequence relative to FV.
-                The δ/2 symmetry follows from assuming equal bid/ask arrival rates.
+AVELLANEDA-STOIKOV MODEL — derive
+    Analytical. Solves a stochastic control problem (HJB equation) for the
+    optimal reservation price and spread in closed form, then sweeps risk
+    aversion and time horizon to pick the best-scoring combination. See
+    avellaneda_stoikov/math.txt.
 
-INVENTORY PENALTY
-    EV model:   r = FV - α * q. Linear, constant penalty. α has no connection to
-                volatility or time — purely a tunable number.
-    AS model:   r = s - q * γ * σ² * T. Penalty grows with volatility, risk
-                aversion, and time horizon. Grounded in the theory.
-
-FAIR VALUE SOURCE
-    EV model:   computes FV internally from transaction history.
-    AS model:   takes FV as an input. In this codebase, it uses the EV model's output.
-
-WHAT THE OPTIMIZER TUNES
-    EV model:   spread_multiplier (1 dimension).
-    AS model:   risk_aversion, time_horizon (2 dimensions, grid search).
-                liquidity is no longer swept — it is derived from data.
-                Both use the same total_EV criterion to pick the winner.
-
-THEORETICAL BASIS
-    EV model:   heuristic. The fill probability formula is a reasonable approximation,
-                not a derived result. No proof of optimality.
-    AS model:   derived from a formal stochastic control problem. Under the model's
-                assumptions it produces the mathematically optimal quotes.
-
-
-
-
-================================================================================
-PRACTICAL USE CASES
-================================================================================
-
-WHEN TO USE THE EV MODEL
--------------------------
-Use the EV model when the market does not cleanly satisfy theoretical assumptions.
-Fashion resale is irregular — transactions are sparse, arrival rates are not truly
-Poisson, and prices do not follow geometric Brownian motion. The EV model makes
-none of those assumptions. It simply asks: "which quote produces the highest
-expected profit given how likely it is to fill?" That question is robust to messy,
-real-world market structure.
-
-It is also easier to debug. If the quotes look wrong, the cause is traceable:
-a spread too wide lowers fill probability, which lowers EV, which causes the
-optimizer to reject it. The logic is explicit at every step.
-
-Use the EV model when:
-    - Transaction history is sparse or irregular
-    - Market conditions do not fit clean theoretical assumptions
-    - Transparency and debuggability matter more than theoretical elegance
-    - You want a reliable baseline that degrades gracefully
-
-
-WHEN TO USE THE AVELLANEDA-STOIKOV MODEL
------------------------------------------
-Use the AS model when you want the quotes to respond coherently to multiple
-market conditions simultaneously. The AS spread automatically widens when
-volatility is high, when inventory is large, when liquidity is low, and when
-the time horizon is long — all at once, in a single formula derived from first
-principles. The EV model's spread is just k * σ, so it only directly responds
-to volatility. To get equivalent multi-factor behavior from the EV model you
-would need to layer on additional heuristics manually.
-
-The AS spread is also interpretable in a way the EV spread is not. The two
-components — the risk term (γσ²T) and the liquidity term ((2/γ)ln(1 + γ/κ)) —
-tell you exactly what is driving the width at any given moment. If the spread
-widens, you can immediately attribute it to either inventory risk or liquidity
-conditions.
-
-Use the AS model when:
-    - The market is active enough that Poisson arrival assumptions roughly hold
-    - You need quotes that jointly respond to volatility, inventory, liquidity,
-      and time horizon without manual tuning
-    - Interpretability of the spread components matters
-    - You want a theoretically grounded framework that scales to new items
-      without recalibrating heuristics
-
-
-FOR THIS PROJECT SPECIFICALLY
-------------------------------
-For a resale market with sparse, irregular transactions the EV model is likely
-more reliable in practice — the AS assumptions are clearly violated in thin
-markets like vintage or illiquid items (e.g. Nike Air Mag, Polo Bear Sweater).
-AS is the stronger academic contribution and the more elegant framework, but
-the EV model is more honest about what the data actually supports.
-
-The two models are best used together: run EV as a sanity check on AS output.
-If they agree, the quote is robust. If they diverge significantly, it is a
-signal that the market conditions are unusual and extra caution is warranted.
+Both models run on every quote; the one with the higher total EV is passed
+downstream to the decision engine (see app/decision/).

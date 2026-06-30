@@ -1,3 +1,9 @@
+AVELLANEDA-STOIKOV MODEL
+
+KEY IDEA: Derive
+We directly derive variables like reservation price and optimal spread
+using variables we were given (FV, Vol, Liq, etc.). We then center around
+the reservation price and add spread/2 for ask, and subtract spread/2 for bid
 
 VARIABLES:
 - μ (fair value) estimated true price
@@ -7,7 +13,6 @@ VARIABLES:
 - k (liquidity) how quickly trades happen
 - T (time horizon) how long you plan to trade
 
-KEY IDEAS:
 Reservation Price: r = μ − (q·γ·σ²·T)
     - Interpretation: The true price to the trader (based their position), not the market
     - Takes inventory (q) into account (i.e. if q > 0, price shifts down, if q < 0, price shifts up)

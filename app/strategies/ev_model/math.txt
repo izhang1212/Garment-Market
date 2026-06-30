@@ -1,57 +1,69 @@
-This model uses recency weighting (i.e. it leans more toward the recent transactions), 
-using exponential time decay: w_𝑖 = e^(-𝜆 * 𝑡_𝑖), where: 
-    - 𝑡_𝑖 = age in days
-    - 𝜆 = decay rate
+EV_MODEL
 
-So, rather than averaging the values, this model biases the more
-recent transactions, taking "market trends" into account
-- e.g. if t = 0, weight is large (i.e. very important),
-       if t = 10, weight is small since the transaction is outdated
-       if t = 20, this transaction is almost ignored since it is so outdated	​
+KEY IDEA: Simulate
+We test various bids/asks with their cooresponding p_fill(bid/ask)
+probabilties, and choose the bid and the ask with the highest EV_ask
 
-MODELS:
-Fair Value: 𝜇 = (∑w_𝑖 * x_𝑖) / ∑w_𝑖
-    - By using weights (w_𝑖), we can find the "best estimate" of current market 
-      value given recent evidence (giving more weight to more recent transactions)
-Volatility: σ= sqrt((∑w_𝑖 (x_𝑖 - 𝜇)^2) / ∑w_𝑖)
-    - Calculates the spread (and in doing so the risk) of the transactions
-    - e.g. if transactions are [200, 201, 198], the volatility is small since the transactions are grouped closely
-           if transactions are [200, 149, 262], the volatility is higher since the prices vary largely (i.e. more risk)
-
-EXAMPLE:
-Given a list of transactions, if an output gives:
-    Fair Value: 245.8
-    Volatility: 4.6
-Interpretation: 
-    We think the item is worth ~246 and the typical deviation is +/-5
-    So, most prices fall between 241 - 251
-
-
-Base spread: spread = kσ
-    - By using the volatility, the more uncertain it is, the wider we should quote
+VARIABLES:
+- μ (fair value) estimated true price
+- σ (volatility) uncertainty / price dispersion
+- q (inventory) how many units you hold
+- k (liquidity) how quickly trades happen
+- a (aggressiveness) how aggressive we want to be
 
 Reservation price: r = μ − αq, where:
     - r = reservation price
     - μ = fair value
     - q = inventory
-    - α = penalty 
+    - α = penalty, set to 1% of μ per unit held (α = 0.01 * μ)
 Interpretation: "The value of this item is lower if I already own too much of it"
-
-Bid: r - spread/2
-Ask: r + spread/2
-    - This centers the market around our adjusted internval value (reservation price), not just the raw FV
+α scales with the item's own price instead of being a flat constant 
+— a $200 sneaker costs $2/unit to hold, a $600 item costs $6/unit.
 
 EXAMPLE:
-Suppose 
-    - FV = 246
-    - Volatility = 5
-    - Spread = 10
-    - Inventory = 2
-    - penalty = 1.5
-Then, 
-    r = 246 - (1.5 * 2.0) = 243
-So,
-    bid = 243 - 5 = 238
-    ask = 243 + 5 = 248
-Because inventory is positive, our quote shifts downward, and
-we are more eagar to sell and less eager to buy
+Suppose
+    - FV (μ) = 246
+    - Inventory (q) = 2
+Then,
+    α = 0.01 * 246 = 2.46
+    r = 246 - (2.46 * 2) = 241.08
+Because inventory is positive, the reservation price shifts below FV, making
+us more eager to sell and less eager to buy.
+
+
+ASYMMETRIC BID/ASK
+-------------------
+Earlier versions picked one spread multiplier and placed bid/ask
+symmetrically around r. Since bid_EV and ask_EV don't share any variables,
+the model now searches for the best bid and the best ask independently —
+two separate 1-D optimizations instead of one.
+
+For each side, a multiplier m is swept via golden-section search over
+m ∈ [0.1, 6.0]:
+    bid = r - m_bid * σ / 2     (floored so it never drops below the min
+                                  spread or $1)
+    ask = r + m_ask * σ / 2
+
+Fill probability and EV are still measured from FV, not r:
+    P(fill_bid) = exp(-a * |bid - μ| / σ)
+    P(fill_ask) = exp(-a * |ask - μ| / σ)
+    bid_EV      = (μ - bid) * P(fill_bid)
+    ask_EV      = (ask - μ) * P(fill_ask)
+
+m_bid and m_ask are chosen separately to maximize their own side's EV —
+there's no requirement that they match. 
+When long (q > 0), r < μ, so the ask already sits closer to FV than the bid does, and each side can additionally
+widen or tighten on top of that skew. total_EV = bid_EV + ask_EV at the
+combined optimum of both sides.
+
+EXAMPLE:
+Suppose r = 241.08, σ = 5, a = 1.0, μ = 246, and the search finds
+m_bid* = 1.8, m_ask* = 1.2. Then:
+    bid = 241.08 - 1.8*5/2 = 236.58   →  P(fill_bid) = exp(-|236.58-246|/5) ≈ 0.15
+    ask = 241.08 + 1.2*5/2 = 244.08   →  P(fill_ask) = exp(-|244.08-246|/5) ≈ 0.68
+The ask is closer to FV and fills more easily — exactly the inventory
+correction we want when long.
+
+The optimizer also returns five "showcase" candidates per side (multiplier
+swept in fixed steps around the optimum) so the chosen multiplier can be
+displayed alongside its neighbors.
