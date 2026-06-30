@@ -344,12 +344,28 @@ def get_item_detail(sku: str, request: Request):
         sx_image: str | None = None
         goat_image: str | None = None
 
-        # StockX — search by SKU first, then by name; validate each result
-        sx_product = validated_search(
-            lambda q: sx_pipe.search_product(client, q),
-            sku,
-            expected_name or sku,
-        )
+        # StockX search — two cases:
+        #
+        # A) Item IS in the local DB (expected_name set): use validated_search
+        #    so a fuzzy-matched wrong product can't pollute our data.
+        #
+        # B) Item is NOT in the local DB (expected_name is None): the SKU we
+        #    received came from StockX's own search results, so a direct lookup
+        #    by that SKU is reliable. Skip Jaccard validation here — it would
+        #    always fail because numeric SKU tokens share nothing with product
+        #    name tokens (e.g. "1904762" vs "stussy"). Extract the product name
+        #    from the result so GOAT validation can still run normally.
+        if expected_name is not None:
+            sx_product = validated_search(
+                lambda q: sx_pipe.search_product(client, q),
+                sku,
+                expected_name,
+            )
+        else:
+            sx_product = sx_pipe.search_product(client, sku)
+            if sx_product is not None:
+                expected_name = sx_product.get("title") or sx_product.get("name")
+
         if sx_product is not None:
             pid = str(sx_product.get("id", sx_product.get("slug", "")))
             sales = sx_pipe.fetch_sales(client, pid, 50)
@@ -365,7 +381,8 @@ def get_item_detail(sku: str, request: Request):
                 }
             sx_image = sx_product.get("image") or sx_product.get("thumbnail") or sx_product.get("imageUrl")
 
-        # GOAT — same validated two-stage search
+        # GOAT — validated search using the name established above
+        # (either from local DB or from the StockX result in case B)
         goat_product = validated_search(
             lambda q: goat_pipe.search_product(client, q),
             sku,
