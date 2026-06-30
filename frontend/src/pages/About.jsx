@@ -162,44 +162,165 @@ export default function About() {
           </div>
         </div>
 
-        {/* How they work together */}
-        <div className="surface surface-pad" style={{ textAlign: 'center', padding: 'clamp(2rem, 4vw, 3.5rem)' }}>
-          <p className="eyebrow mb-4">Decision Engine</p>
-          <h3
-            className="display-lg mb-5"
-            style={{ letterSpacing: '-0.03em', fontSize: 'clamp(1.75rem, 3.8vw, 3rem)' }}
-          >
-            how they work together.
-          </h3>
-          <p
-            className="leading-relaxed"
-            style={{ color: 'var(--muted-foreground)', maxWidth: '56rem', margin: '0 auto 2rem' }}
-          >
-            both models consume the same inputs, but approach the quoting problem differently. the ev model is
-            simulation-based and depends on fill-probability assumptions; the avellaneda-stoikov model is
-            derivation-based and naturally encodes inventory risk and liquidity. a final decision
-            engine compares actionability across both sides and produces a unified trading recommendation.
-          </p>
+        {/* Decision Engine — 5-layer pipeline */}
+        <div className="surface surface-pad" style={{ padding: 'clamp(2rem, 4vw, 3.5rem)' }}>
+
+          {/* Header — centred */}
+          <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
+            <p className="eyebrow mb-4">Decision Engine</p>
+            <h3
+              className="display-lg mb-5"
+              style={{ letterSpacing: '-0.03em', fontSize: 'clamp(1.75rem, 3.8vw, 3rem)' }}
+            >
+              how they work together.
+            </h3>
+            <p
+              className="leading-relaxed"
+              style={{ color: 'var(--muted-foreground)', maxWidth: '52rem', margin: '0 auto' }}
+            >
+              both models produce quotes independently. a five-layer pipeline then decides
+              whether each side is actually worth posting, filtering out quotes where the edge
+              is too thin or the market isn't set up right. 
+            </p>
+          </div>
+
+          {/* Pipeline strip */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(5, 1fr)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            overflow: 'hidden',
+            marginBottom: '1.5rem',
+          }}>
+            {[
+              {
+                id: 'L1', tag: 'KALMAN',
+                q: 'where is price now?',
+                body: 'tracks the price trend through all historical sales, filtering out noise. outputs a current fair value and whether the price is drifting up or down.',
+              },
+              {
+                id: 'L2', tag: 'Z-SCORE',
+                q: 'is the last sale an anomaly?',
+                body: 'compares the most recent transaction to the fair value. a sale far above or below fair value is flagged — it may signal an opportunity, or just noise.',
+              },
+              {
+                id: 'L3', tag: 'OU REGIME',
+                q: 'reverting or trending?',
+                body: 'determines whether this item historically snaps back to its fair value or keeps moving in one direction. this decides which signal to trust as the primary filter.',
+              },
+              {
+                id: 'L4', tag: 'KELLY',
+                q: 'is the edge big enough?',
+                body: "sizes the opportunity relative to its cost. if the profit edge barely covers the cost of tying up capital, the quote doesn't clear this gate.",
+              },
+              {
+                id: 'L5', tag: 'DECISION',
+                q: 'bid, ask, both, or hold?',
+                body: 'each side must clear two independent gates. both pass → actionable. one fails → that side is suppressed. the result comes with a full trace of what passed and what blocked.',
+              },
+            ].map(({ id, tag, q, body }, i, arr) => (
+              <div key={id} style={{
+                padding: '1.1rem 1.1rem 1.25rem',
+                borderRight: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+                background: i === arr.length - 1
+                  ? 'color-mix(in oklab, var(--field) 5%, var(--card))'
+                  : 'var(--card)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.5rem',
+              }}>
+                <div style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: '0.6rem',
+                  letterSpacing: '0.08em',
+                  color: 'var(--field)',
+                }}>
+                  {id} · {tag}
+                </div>
+                <div style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: '0.63rem',
+                  color: 'var(--muted-foreground)',
+                  lineHeight: 1.45,
+                }}>
+                  {q}
+                </div>
+                <div style={{
+                  fontSize: '0.8rem',
+                  lineHeight: 1.6,
+                  color: 'var(--foreground)',
+                  marginTop: '0.15rem',
+                }}>
+                  {body}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Gate logic — two columns */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '1rem',
+            marginBottom: '1.5rem',
+          }}>
+            {[
+              {
+                label: 'GATE 1 · EDGE SIZE',
+                desc: "the profit opportunity must clear a minimum threshold after accounting for the cost of capital. a quote that barely breaks even isn't worth posting.",
+                note: 'Kelly criterion, half-sized · 2% opportunity cost floor',
+              },
+              {
+                label: 'GATE 2 · MARKET CONDITION',
+                desc: 'a regime-appropriate signal confirms the move makes sense. reverting items check if price is stretched; trending items check the direction of momentum.',
+                note: 'z-score gate for mean-reverting · velocity gate for trending',
+              },
+            ].map(({ label, desc, note }) => (
+              <div key={label} style={{
+                background: 'var(--card)',
+                border: '1px solid var(--border)',
+                borderRadius: 'calc(var(--radius) - 2px)',
+                padding: '1rem 1.25rem',
+              }}>
+                <div style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: '0.6rem',
+                  letterSpacing: '0.1em',
+                  color: 'var(--muted-foreground)',
+                  marginBottom: '0.5rem',
+                }}>
+                  {label}
+                </div>
+                <p style={{ fontSize: '0.83rem', lineHeight: 1.6, color: 'var(--foreground)', marginBottom: '0.75rem' }}>
+                  {desc}
+                </p>
+                <div style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: '0.68rem',
+                  color: 'var(--muted-foreground)',
+                }}>
+                  {note}
+                </div>
+              </div>
+            ))}
+          </div>
 
           {/* Stat strip */}
-          <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)', maxWidth: '56rem', margin: '0 auto' }}>
-            <div className="stat-cell" style={{ textAlign: 'left' }}>
-              <span className="stat-label">Inputs</span>
-              <span className="stat-value-sm">Tx · FV · σ</span>
-            </div>
-            <div className="stat-cell" style={{ textAlign: 'left' }}>
-              <span className="stat-label">Refresh</span>
-              <span className="stat-value-sm">~12s</span>
-            </div>
-            <div className="stat-cell" style={{ textAlign: 'left' }}>
-              <span className="stat-label">Universe</span>
-              <span className="stat-value-sm">950K+ skus</span>
-            </div>
-            <div className="stat-cell" style={{ textAlign: 'left' }}>
-              <span className="stat-label">Backtest Sharpe</span>
-              <span className="stat-value-sm">2.31</span>
-            </div>
+          <div className="stat-strip" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            {[
+              { label: 'PIPELINE LAYERS',   value: '5' },
+              { label: 'SIDES EVALUATED',   value: 'independently' },
+              { label: 'GATES',          value: '2' },
+              { label: 'OUTPUTS',           value: 'buy · sell · both · hold' },
+            ].map(({ label, value }) => (
+              <div key={label} className="stat-cell" style={{ textAlign: 'left' }}>
+                <span className="stat-label">{label}</span>
+                <span className="stat-value-sm">{value}</span>
+              </div>
+            ))}
           </div>
+
         </div>
 
       </div>
