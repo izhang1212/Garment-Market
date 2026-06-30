@@ -24,6 +24,7 @@ from app.decision import (
     ou_half_life,
     compute_sizing,
 )
+from app.data.kicks_db.match import validated_search, best_image
 from app.config import settings
 from api.middleware.rate_limit import RateLimiter, client_ip
 
@@ -312,7 +313,24 @@ def get_item_detail(sku: str, request: Request):
     transactions = []
     item_meta = None
 
-    # ── Try KicksDB first (live market data) ──────────────────────────────
+    # ── Look up local item first — provides expected name for KicksDB validation
+    # and acts as the guaranteed fallback for metadata and transactions.
+    local_db = SessionLocal()
+    try:
+        local_item = (
+            local_db.query(Item)
+            .options(joinedload(Item.transactions))
+            .filter(Item.sku == sku)
+            .first()
+        )
+    finally:
+        local_db.close()
+
+    expected_name = local_item.name if local_item else None
+
+    # ── Try KicksDB for live transaction data ─────────────────────────────
+    # Results are validated against expected_name so a fuzzy-matched wrong
+    # product never pollutes the transaction history or metadata.
     if settings.kicks_db_api_key:
         from app.data.kicks_db import KicksDBClient
         from app.data.kicks_db import stockx as sx_pipe
@@ -323,8 +341,15 @@ def get_item_detail(sku: str, request: Request):
         )
 
         client = KicksDBClient(settings.kicks_db_api_key)
+        sx_image: str | None = None
+        goat_image: str | None = None
 
-        sx_product = sx_pipe.search_product(client, sku)
+        # StockX — search by SKU first, then by name; validate each result
+        sx_product = validated_search(
+            lambda q: sx_pipe.search_product(client, q),
+            sku,
+            expected_name or sku,
+        )
         if sx_product is not None:
             pid = str(sx_product.get("id", sx_product.get("slug", "")))
             sales = sx_pipe.fetch_sales(client, pid, 50)
@@ -332,14 +357,20 @@ def get_item_detail(sku: str, request: Request):
                 transactions.extend(stockx_sales_to_transactions(sales, 0))
             if item_meta is None:
                 item_meta = {
-                    "sku": sx_product.get("sku", sku),
-                    "name": sx_product.get("title") or sx_product.get("name", sku),
-                    "brand": sx_product.get("brand", ""),
+                    "sku":      sx_product.get("sku") or sku,
+                    "name":     sx_product.get("title") or sx_product.get("name") or expected_name or sku,
+                    "brand":    sx_product.get("brand", ""),
                     "category": sx_product.get("product_type") or sx_product.get("category", ""),
-                    "image_url": sx_product.get("image"),
+                    "image_url": None,   # filled below after image resolution
                 }
+            sx_image = sx_product.get("image") or sx_product.get("thumbnail") or sx_product.get("imageUrl")
 
-        goat_product = goat_pipe.search_product(client, sku)
+        # GOAT — same validated two-stage search
+        goat_product = validated_search(
+            lambda q: goat_pipe.search_product(client, q),
+            sku,
+            expected_name or sku,
+        )
         if goat_product is not None:
             pid = str(goat_product.get("id", ""))
             sales = goat_pipe.fetch_sales(client, pid, 50)
@@ -347,41 +378,35 @@ def get_item_detail(sku: str, request: Request):
                 transactions.extend(goat_sales_to_transactions(sales, 0))
             if item_meta is None:
                 item_meta = {
-                    "sku": goat_product.get("sku", sku),
-                    "name": goat_product.get("name") or goat_product.get("title", sku),
-                    "brand": goat_product.get("brand_name", ""),
+                    "sku":      goat_product.get("sku") or sku,
+                    "name":     goat_product.get("name") or goat_product.get("title") or expected_name or sku,
+                    "brand":    goat_product.get("brand_name", ""),
                     "category": goat_product.get("product_type", ""),
-                    "image_url": (
-                        goat_product.get("main_picture_url")
-                        or goat_product.get("image")
-                        or goat_product.get("cover_picture")
-                    ),
+                    "image_url": None,
                 }
-
-    # ── Fall back to local DB if KicksDB returned nothing ─────────────────
-    # Covers: no API key configured, SKU not on StockX/GOAT (seed-only items),
-    # or KicksDB returned too few sales to model.
-    if len(transactions) < MIN_TRANSACTIONS:
-        local_db = SessionLocal()
-        try:
-            local_item = (
-                local_db.query(Item)
-                .options(joinedload(Item.transactions))
-                .filter(Item.sku == sku)
-                .first()
+            # GOAT's image lives in 'image_url', not 'main_picture_url'
+            goat_image = (
+                goat_product.get("image_url")
+                or goat_product.get("main_picture_url")
+                or goat_product.get("image")
             )
-        finally:
-            local_db.close()
 
+        # Resolve image: prefer StockX if real, fall through to GOAT
+        if item_meta is not None:
+            item_meta["image_url"] = best_image(sx_image, goat_image)
+
+    # ── Fall back to local DB if KicksDB returned no valid transactions ────
+    # Covers: no API key, item not on StockX/GOAT, or validation rejected
+    # every search result (wrong product returned for our internal SKU).
+    if len(transactions) < MIN_TRANSACTIONS:
         if local_item and len(local_item.transactions) >= MIN_TRANSACTIONS:
             transactions = local_item.transactions
-            # Use KicksDB metadata if we found any, otherwise use local record
             if item_meta is None:
                 item_meta = {
-                    "sku": local_item.sku,
-                    "name": local_item.name,
-                    "brand": local_item.brand,
-                    "category": local_item.category,
+                    "sku":       local_item.sku,
+                    "name":      local_item.name,
+                    "brand":     local_item.brand,
+                    "category":  local_item.category,
                     "image_url": local_item.image_url,
                 }
         else:

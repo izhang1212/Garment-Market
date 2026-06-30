@@ -1,13 +1,14 @@
 """Orchestrates per-item data loading from KicksDB.
 
 For each Item in the database:
-  1. Search StockX by SKU (fallback to name), fetch variant for the item's size,
-     pull up to STOCKX_LIMIT recent sales, extract current ask prices.
+  1. Search StockX by SKU (validated against item name; fallback to name search),
+     fetch variant for the item's size, pull up to STOCKX_LIMIT recent sales,
+     extract current ask prices.
   2. Do the same for GOAT.
   3. Replace all existing transactions and listings for the item with the
      freshly fetched real data.
 
-If neither market returns any sales, the item is left untouched (its
+If neither market returns a validated match, the item is left untouched (its
 existing transactions, if any, remain in the database).
 """
 
@@ -22,6 +23,7 @@ from app.schemas.transaction import Transaction
 from .client import KicksDBClient
 from . import stockx as sx_pipeline
 from . import goat as goat_pipeline
+from .match import validated_search, best_image, is_placeholder
 from .normalizer import (
     goat_sales_to_transactions,
     listing_records_to_listings,
@@ -42,15 +44,18 @@ def load_item(db: Session, item: Item, client: KicksDBClient) -> bool:
     new_transactions: list[Transaction] = []
     new_listings: list[Listing] = []
 
+    sx_image: str | None = None
+    goat_image: str | None = None
+
     # ── StockX ──────────────────────────────────────────────────────────────
-    sx_product = sx_pipeline.search_product(client, item.sku)
-    if sx_product is None and item.sku != item.name:
-        sx_product = sx_pipeline.search_product(client, item.name)
+    sx_product = validated_search(
+        lambda q: sx_pipeline.search_product(client, q),
+        item.sku,
+        item.name,
+    )
 
     if sx_product is not None:
         product_id = str(sx_product.get("id", sx_product.get("slug", "")))
-        # Re-fetch with variants so we can resolve the size-specific variant_id
-        # and extract current ask prices.
         full_product = sx_pipeline.get_product_with_variants(client, product_id) or sx_product
         variant_id = sx_pipeline.find_variant_id(full_product, item.size)
 
@@ -62,17 +67,14 @@ def load_item(db: Session, item: Item, client: KicksDBClient) -> bool:
         if listing_records:
             new_listings += listing_records_to_listings(listing_records, item.id, "stockx", now)
 
-        # Capture image URL for the item record
-        if not item.image_url:
-            image_url = (sx_product.get("image") or sx_product.get("thumbnail")
-                         or sx_product.get("imageUrl") or sx_product.get("image_url"))
-            if image_url:
-                item.image_url = image_url
+        sx_image = sx_product.get("image") or sx_product.get("thumbnail") or sx_product.get("imageUrl")
 
     # ── GOAT ────────────────────────────────────────────────────────────────
-    goat_product = goat_pipeline.search_product(client, item.sku)
-    if goat_product is None and item.sku != item.name:
-        goat_product = goat_pipeline.search_product(client, item.name)
+    goat_product = validated_search(
+        lambda q: goat_pipeline.search_product(client, q),
+        item.sku,
+        item.name,
+    )
 
     if goat_product is not None:
         product_id = str(goat_product.get("id", ""))
@@ -81,25 +83,27 @@ def load_item(db: Session, item: Item, client: KicksDBClient) -> bool:
         if sales:
             new_transactions += goat_sales_to_transactions(sales, item.id)
 
-        # Search results don't include variants; fetch the full product for listings.
         full_goat = goat_pipeline.get_product(client, product_id) or goat_product
         listing_records = goat_pipeline.extract_listings(full_goat, item.size)
         if listing_records:
             new_listings += listing_records_to_listings(listing_records, item.id, "goat", now)
 
-        # Capture image URL from GOAT as fallback
-        if not item.image_url:
-            image_url = (goat_product.get("main_picture_url") or goat_product.get("image")
-                         or goat_product.get("cover_picture") or goat_product.get("imageUrl"))
-            if image_url:
-                item.image_url = image_url
+        # GOAT's image is in 'image_url', not 'main_picture_url'
+        goat_image = (
+            goat_product.get("image_url")
+            or goat_product.get("main_picture_url")
+            or goat_product.get("image")
+        )
+
+    # ── Image: prefer StockX if real, fall through to GOAT ─────────────────
+    resolved_image = best_image(sx_image, goat_image)
+    if resolved_image and (not item.image_url or is_placeholder(item.image_url)):
+        item.image_url = resolved_image
 
     # ── Persist ─────────────────────────────────────────────────────────────
     if not new_transactions:
         return False
 
-    # Clear all existing data for this item so we never mix fake seed data
-    # with real API data.
     db.query(Transaction).filter(Transaction.item_id == item.id).delete()
     db.query(Listing).filter(Listing.item_id == item.id).delete()
 

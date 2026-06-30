@@ -27,8 +27,11 @@ def _prefetch_images(client) -> None:
 
     Only does a search call per item (no sales fetching), so all images
     are populated in ~5 seconds instead of after the full 1-2 min load.
+    Results are validated against item name to avoid storing images from
+    wrong products; StockX placeholders fall through to GOAT.
     """
-    from app.data.kicks_db import stockx as sx_pipeline
+    from app.data.kicks_db import stockx as sx_pipeline, goat as goat_pipeline
+    from app.data.kicks_db.match import validated_search, best_image
     from app.db.session import SessionLocal
     from app.schemas import Item
 
@@ -37,12 +40,23 @@ def _prefetch_images(client) -> None:
         items = db.query(Item).filter(Item.image_url.is_(None)).all()
         for item in items:
             try:
-                sx = sx_pipeline.search_product(client, item.sku)
-                if sx:
-                    img = (sx.get("image") or sx.get("thumbnail")
-                           or sx.get("imageUrl") or sx.get("image_url"))
-                    if img:
-                        item.image_url = img
+                sx = validated_search(
+                    lambda q: sx_pipeline.search_product(client, q),
+                    item.sku, item.name,
+                )
+                sx_img = (sx.get("image") or sx.get("thumbnail") or sx.get("imageUrl")) if sx else None
+
+                goat = validated_search(
+                    lambda q: goat_pipeline.search_product(client, q),
+                    item.sku, item.name,
+                )
+                goat_img = (
+                    goat.get("image_url") or goat.get("main_picture_url") or goat.get("image")
+                ) if goat else None
+
+                img = best_image(sx_img, goat_img)
+                if img:
+                    item.image_url = img
             except Exception:
                 pass
         db.commit()
