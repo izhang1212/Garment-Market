@@ -1,6 +1,6 @@
 from .avellaneda_stoikov import compute_as_quotes
-from ..ev_model.fill_probability import compute_fill_probability
-from ..ev_model.expected_value import (
+from ..shared.fill_probability import compute_fill_probability
+from ..shared.expected_value import (
     compute_bid_expected_value,
     compute_ask_expected_value,
 )

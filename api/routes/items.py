@@ -115,6 +115,7 @@ def _run_models(transactions, inventory: int = 0):
         risk_aversion_values=[0.001, 0.005, 0.01, 0.02, 0.05],
         liquidity_values=[liquidity],
         time_horizon_values=[0.5, 1.0, 2.0],
+        aggressiveness=aggressiveness,
         min_spread=0.0,
     )
 
