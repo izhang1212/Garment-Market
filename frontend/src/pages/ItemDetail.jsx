@@ -329,11 +329,11 @@ function EVWalkthrough({ model: ev, inventory }) {
       <Step n={4} title="ship the highest-ev quote" last>
         <div className="ba-grid">
           <div className="ba-cell">
-            <span className="ba-label">BID · p(fill) {f(pBid, 3)} · ev +${f(evBid)}</span>
+            <span className="ba-label">BID</span>
             <span className="ba-value ba-bid">${f(bid)}</span>
           </div>
           <div className="ba-cell">
-            <span className="ba-label">ASK · p(fill) {f(pAsk, 3)} · ev +${f(evAsk)}</span>
+            <span className="ba-label">ASK</span>
             <span className="ba-value ba-ask">${f(ask)}</span>
           </div>
         </div>
@@ -438,11 +438,11 @@ function ASWalkthrough({ model: as_, inventory }) {
         />
         <div className="ba-grid">
           <div className="ba-cell">
-            <span className="ba-label">BID · r − δ*/2</span>
+            <span className="ba-label">BID</span>
             <span className="ba-value ba-bid">${f(bid)}</span>
           </div>
           <div className="ba-cell">
-            <span className="ba-label">ASK · r + δ*/2</span>
+            <span className="ba-label">ASK</span>
             <span className="ba-value ba-ask">${f(ask)}</span>
           </div>
         </div>

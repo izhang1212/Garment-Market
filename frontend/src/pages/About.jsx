@@ -25,14 +25,39 @@ export default function About() {
         {/* Header */}
         <div style={{ paddingBottom: '2.5rem', marginBottom: '2.5rem', borderBottom: '1px solid var(--border)' }}>
           <p className="eyebrow mb-3">Garment Market</p>
-          <h1 className="display-xl mb-4">about.</h1>
-          <p
-            className="text-lg leading-relaxed"
-            style={{ color: 'var(--muted-foreground)' }}
-          >
-            garment market uses two quantitative models to produce optimal bid and ask
-            prices for resale goods.
-          </p>
+          <h1 className="display-xl">about.</h1>
+        </div>
+
+        {/* Inspiration */}
+        <div style={{ marginBottom: '3.5rem' }}>
+          <p className="eyebrow mb-2">INSPIRATION</p>
+          <h2 className="display-lg mb-3">why this project.</h2>
+          <div style={{ height: '2px', background: 'var(--field)', marginBottom: '1.75rem' }} />
+          <div className="surface surface-pad" style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+            <p className="leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
+              fashion resale markets behave structurally like financial exchanges:
+            </p>
+            <ul style={{ paddingLeft: '1.4rem', listStyleType: 'disc', display: 'flex', flexDirection: 'column', gap: '0.5rem', color: 'var(--muted-foreground)' }}>
+              <li className="leading-relaxed">
+                buyers post bids, sellers post asks, and items are transacted when the two sides meet an agreed price
+              </li>
+              <li className="leading-relaxed">
+                the prices of these items are driven by supply, demand, hype, and scarcity — the same forces that govern equity markets
+              </li>
+            </ul>
+            <p className="leading-relaxed" style={{ color: 'var(--muted-foreground)' }}>
+              this project treats every item (sneakers, streetwear pieces, accessories) as a{' '}
+              <strong style={{ color: 'var(--foreground)' }}>tradeable asset,</strong>{' '}
+              and uses historical transaction data to generate optimal bid and ask quotes.
+            </p>
+          </div>
+        </div>
+
+        {/* Math */}
+        <div style={{ marginBottom: '2rem' }}>
+          <p className="eyebrow mb-2">THE MATH</p>
+          <h2 className="display-lg mb-3">the models.</h2>
+          <div style={{ height: '2px', background: 'var(--field)', marginBottom: '1.75rem' }} />
         </div>
 
         {/* Shared inputs */}
